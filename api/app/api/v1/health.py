@@ -20,7 +20,9 @@ async def readiness() -> dict[str, str]:
         await session.execute(text("SELECT 1"))
 
     client = aioredis.from_url(settings.REDIS_URL, socket_connect_timeout=2)
-    await client.ping()
-    await client.aclose()
+    try:
+        await client.ping()
+    finally:
+        await client.aclose()
 
     return {"status": "ready", "db": "ok", "redis": "ok"}
