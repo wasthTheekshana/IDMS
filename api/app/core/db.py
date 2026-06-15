@@ -1,16 +1,26 @@
+import os
+
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
+
+_pool_kwargs: dict[str, object] = {}
+if os.getenv("TESTING") == "true":
+    # Each pytest function gets its own event loop; NullPool avoids reusing
+    # asyncpg connections that are bound to the previous (closed) loop.
+    _pool_kwargs["poolclass"] = NullPool
 
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
     pool_pre_ping=True,
+    **_pool_kwargs,  # type: ignore[arg-type]
 )
 
 SessionLocal = async_sessionmaker(
