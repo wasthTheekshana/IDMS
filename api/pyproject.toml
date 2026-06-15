@@ -10,10 +10,14 @@ dependencies = [
     "asyncpg>=0.29.0",
     "alembic>=1.13.0",
     "pydantic-settings>=2.6.0",
+    "pydantic[email]>=2.0.0",
     "celery[redis]>=5.4.0",
     "redis>=5.0.0",
     "structlog>=24.4.0",
     "sentry-sdk[fastapi]>=2.14.0",
+    "passlib[argon2]>=1.7.4",
+    "python-jose[cryptography]>=3.3.0",
+    "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +30,7 @@ dev = [
     "mypy>=1.11.0",
     "bandit[toml]>=1.7.9",
     "types-redis>=4.6.0",
+    "types-passlib>=1.7.7",
 ]
 
 [build-system]

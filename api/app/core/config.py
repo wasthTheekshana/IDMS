@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     # Sentry (empty = disabled)
     SENTRY_DSN: str = ""
 
+    # JWT
+    JWT_SECRET_KEY: str = ""
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
     # Cloudflare R2
     R2_ACCOUNT_ID: str = ""
     R2_ACCESS_KEY_ID: str = ""
