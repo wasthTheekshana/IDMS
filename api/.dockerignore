@@ -1,0 +1,19 @@
+# Python artifacts
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Env files — never include in image
+.env
+.env.*
+
+# Test artifacts
+tests/
+
+# Git
+.git/
