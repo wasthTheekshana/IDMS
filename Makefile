@@ -26,7 +26,7 @@ migrate-down:
 	cd api && uv run alembic downgrade -1
 
 seed:
-	cd api && uv run python infra/scripts/seed.py
+	cd api && uv run python ../infra/scripts/seed.py
 
 lint:
 	cd api && uv run ruff check . && uv run ruff format --check . && uv run mypy app/
