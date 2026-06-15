@@ -11,8 +11,8 @@ dist/
 
 # Env — NEVER commit real secrets
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Node
 node_modules/
