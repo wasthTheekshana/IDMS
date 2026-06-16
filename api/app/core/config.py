@@ -42,5 +42,15 @@ class Settings(BaseSettings):
     GOOGLE_AI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-1.5-pro"
 
+    # Upload limits
+    MAX_UPLOAD_BYTES: int = 52_428_800  # 50 MB
+    ALLOWED_MIME_TYPES: list[str] = [
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/tiff",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ]
+
 
 settings = Settings()
