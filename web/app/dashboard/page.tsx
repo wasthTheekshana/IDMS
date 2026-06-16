@@ -7,6 +7,7 @@ import {
   getRefreshToken,
   authApi,
 } from "@/lib/auth";
+import UploadZone from "@/components/UploadZone";
 
 interface UserProfile {
   id: string;
@@ -76,6 +77,10 @@ export default function DashboardPage() {
       >
         Sign out
       </button>
+
+      <hr style={{ margin: "2rem 0" }} />
+      <h2>Upload Document</h2>
+      <UploadZone />
     </main>
   );
 }
