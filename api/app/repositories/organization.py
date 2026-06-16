@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.organization import Organization
@@ -21,3 +21,26 @@ class OrgRepository:
             select(Organization).where(Organization.slug == slug)
         )
         return result.scalar_one_or_none()
+
+    async def get_by_id(self, org_id: uuid.UUID) -> Organization | None:
+        result = await self._s.execute(
+            select(Organization).where(Organization.id == org_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def check_and_increment_quota(self, org_id: uuid.UUID, pages: int) -> bool:
+        """Atomically check quota and increment. Returns True if allowed."""
+        result = await self._s.execute(
+            update(Organization)
+            .where(
+                and_(
+                    Organization.id == org_id,
+                    Organization.pages_used_this_month + pages
+                    <= Organization.monthly_page_quota,
+                )
+            )
+            .values(pages_used_this_month=Organization.pages_used_this_month + pages)
+            .returning(Organization.id)
+        )
+        await self._s.flush()
+        return result.scalar_one_or_none() is not None
