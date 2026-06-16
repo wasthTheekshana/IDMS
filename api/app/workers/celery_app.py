@@ -1,4 +1,4 @@
-from celery import Celery
+from celery import Celery  # type: ignore[import-untyped]
 
 from app.core.config import settings
 
@@ -16,6 +16,7 @@ celery_app.conf.update(
         "embed": {},
         "ai": {},
         "default": {},
+        "dlq": {},
     },
     task_routes={
         "app.workers.tasks.ocr_*": {"queue": "ocr"},
