@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded  # type: ignore[import-untyped]
 from slowapi.util import get_remote_address  # type: ignore[import-untyped]
 
 from app.api.v1.auth import router as auth_router
+from app.api.v1.documents import router as documents_router
 from app.api.v1.health import router as health_router
 from app.api.v1.users import router as users_router
 from app.core.config import settings
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(users_router, prefix="/api/v1")
+    app.include_router(documents_router, prefix="/api/v1")
 
     return app
 
