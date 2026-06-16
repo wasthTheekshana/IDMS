@@ -20,6 +20,7 @@ class Organization(Base):
     )
     plan: Mapped[str] = mapped_column(String(50), server_default="free")
     monthly_page_quota: Mapped[int] = mapped_column(Integer, server_default="500")
+    pages_used_this_month: Mapped[int] = mapped_column(Integer, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
