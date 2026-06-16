@@ -21,5 +21,8 @@
     "eslint": "^8",
     "eslint-config-next": "14.2.5",
     "typescript": "^5"
+  },
+  "overrides": {
+    "es-abstract": "^1.23.3"
   }
 }
