@@ -9,6 +9,7 @@ import {
 } from "@/lib/auth";
 import UploadZone from "@/components/UploadZone";
 import SearchBox from "@/components/SearchBox";
+import AiChat from "@/components/AiChat";
 
 interface UserProfile {
   id: string;
@@ -86,6 +87,10 @@ export default function DashboardPage() {
       <hr style={{ margin: "2rem 0" }} />
       <h2>Search</h2>
       <SearchBox />
+
+      <hr style={{ margin: "2rem 0" }} />
+      <h2>AI Assistant</h2>
+      <AiChat />
     </main>
   );
 }
