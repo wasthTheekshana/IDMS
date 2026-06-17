@@ -8,6 +8,7 @@ import {
   authApi,
 } from "@/lib/auth";
 import UploadZone from "@/components/UploadZone";
+import SearchBox from "@/components/SearchBox";
 
 interface UserProfile {
   id: string;
@@ -81,6 +82,10 @@ export default function DashboardPage() {
       <hr style={{ margin: "2rem 0" }} />
       <h2>Upload Document</h2>
       <UploadZone />
+
+      <hr style={{ margin: "2rem 0" }} />
+      <h2>Search</h2>
+      <SearchBox />
     </main>
   );
 }
