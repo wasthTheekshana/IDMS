@@ -1,7 +1,6 @@
+import redis.asyncio as aioredis
 from fastapi import APIRouter
 from sqlalchemy import text
-
-import redis.asyncio as aioredis
 
 from app.core.config import settings
 from app.core.db import SessionLocal
@@ -23,6 +22,6 @@ async def readiness() -> dict[str, str]:
     try:
         await client.ping()
     finally:
-        await client.aclose()
+        await client.aclose()  # type: ignore[attr-defined]
 
     return {"status": "ready", "db": "ok", "redis": "ok"}

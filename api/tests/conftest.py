@@ -12,8 +12,8 @@ from app.main import app
 async def clean_db() -> None:
     """Truncate all tenant tables before each test so tests are independent."""
     _sql = (
-        "TRUNCATE TABLE api_usage, documents, audit_logs, users, organizations"
-        " RESTART IDENTITY CASCADE"
+        "TRUNCATE TABLE document_chunks, api_usage, documents,"
+        " audit_logs, users, organizations RESTART IDENTITY CASCADE"
     )
     async with SessionLocal.begin() as session:
         await session.execute(text(_sql))

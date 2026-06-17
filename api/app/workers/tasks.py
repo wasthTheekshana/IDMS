@@ -28,6 +28,19 @@ def run_ocr(self: Task, document_id: str, org_id: str) -> dict[str, object]:
     return asyncio.run(_run_ocr_async(self, document_id, org_id))
 
 
+@celery_app.task(  # type: ignore[untyped-decorator]
+    name="app.workers.tasks.embed_document",
+    queue="embed",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+    acks_late=True,
+)
+def embed_document(self: Task, document_id: str, org_id: str) -> dict[str, object]:
+    """Embed all chunks for a document and mark it indexed."""
+    return asyncio.run(_embed_async(self, document_id, org_id))
+
+
 async def _run_ocr_async(
     task: Task, document_id: str, org_id: str
 ) -> dict[str, object]:
@@ -108,11 +121,104 @@ async def _run_ocr_async(
             result.page_count,
             len(chunks),
         )
-        return {
-            "status": "ready",
-            "page_count": result.page_count,
-            "chunk_count": len(chunks),
-        }
+
+    # Enqueue embed task after OCR session commits
+    embed_document.apply_async(
+        args=[document_id, org_id],
+        queue="embed",
+        task_id=f"embed-{doc_id}",
+    )
+
+    return {
+        "status": "ready",
+        "page_count": result.page_count,
+        "chunk_count": len(chunks),
+    }
+
+
+async def _embed_async(task: Task, document_id: str, org_id: str) -> dict[str, object]:
+    import uuid
+
+    from sqlalchemy import text
+
+    from app.core.config import settings
+    from app.core.db import SessionLocal
+    from app.models.chunk import DocumentChunk
+    from app.models.document import DocumentStatus
+    from app.repositories.chunk import ChunkRepository
+    from app.repositories.document import DocumentRepository
+    from app.services.embed import MistralEmbed, StubEmbed
+    from app.services.ocr import chunk_markdown
+
+    doc_id = uuid.UUID(document_id)
+    _org_id = uuid.UUID(org_id)
+
+    async with SessionLocal.begin() as session:
+        await session.execute(text(f"SET LOCAL app.current_org_id = '{_org_id}'"))
+        doc_repo = DocumentRepository(session)
+        doc = await doc_repo.get_by_id(doc_id, org_id=_org_id)
+
+        if not doc or not doc.extracted_text:
+            logger.warning("Document %s has no text to embed", document_id)
+            return {"status": "no_text"}
+
+        # Idempotency: already indexed
+        if doc.status == DocumentStatus.INDEXED.value:
+            logger.info("Document %s already indexed, skipping", document_id)
+            return {"status": "already_indexed"}
+
+        # Re-chunk from stored text (idempotent)
+        pages = doc.extracted_text.split("\n\n---PAGE---\n\n")
+        chunks_data = chunk_markdown(pages)
+
+        if not chunks_data:
+            await doc_repo.set_status(doc_id, DocumentStatus.INDEXED)
+            return {"status": "indexed", "chunk_count": 0}
+
+        chunk_repo = ChunkRepository(session)
+        # Delete existing chunks so re-runs don't duplicate
+        await chunk_repo.delete_for_document(doc_id)
+
+        # Embed in batches
+        provider: MistralEmbed | StubEmbed = (
+            MistralEmbed() if settings.MISTRAL_API_KEY else StubEmbed()
+        )
+        texts = [str(c["content"]) for c in chunks_data]
+        batch_size = settings.EMBED_BATCH_SIZE
+
+        all_embeddings: list[list[float]] = []
+        for i in range(0, len(texts), batch_size):
+            try:
+                vecs = await provider.embed_batch(texts[i : i + batch_size])
+                all_embeddings.extend(vecs)
+            except Exception as exc:
+                logger.exception("Embed batch failed at offset %d", i)
+                if task.request.retries < task.max_retries:
+                    countdown = 60 * (2**task.request.retries)
+                    raise task.retry(exc=exc, countdown=countdown)
+                await doc_repo.set_status(
+                    doc_id, DocumentStatus.FAILED, error_message="Embedding failed"
+                )
+                return {"status": "failed"}
+
+        orm_chunks = [
+            DocumentChunk(
+                id=uuid.uuid4(),
+                org_id=_org_id,
+                document_id=doc_id,
+                page=int(cd["page"]),
+                chunk_index=idx,
+                content=str(cd["content"]),
+                token_count=int(cd["token_count"]),
+                embedding=emb,
+            )
+            for idx, (cd, emb) in enumerate(zip(chunks_data, all_embeddings))
+        ]
+        await chunk_repo.bulk_insert(orm_chunks)
+        await doc_repo.set_status(doc_id, DocumentStatus.INDEXED)
+
+        logger.info("Document %s indexed: %d chunks", document_id, len(orm_chunks))
+        return {"status": "indexed", "chunk_count": len(orm_chunks)}
 
 
 async def _retry_or_fail(
