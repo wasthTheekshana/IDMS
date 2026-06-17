@@ -21,6 +21,8 @@ dependencies = [
     "boto3>=1.35.0",
     "mistralai>=1.0.0",
     "tiktoken>=0.7.0",
+    "pgvector>=0.3.0",
+    "numpy>=1.26.0",
 ]
 
 [project.optional-dependencies]

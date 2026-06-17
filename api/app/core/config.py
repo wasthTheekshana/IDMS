@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     GOOGLE_AI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-1.5-pro"
 
+    # Embeddings
+    EMBED_MODEL: str = "mistral-embed"
+    EMBED_DIM: int = 1024
+    EMBED_BATCH_SIZE: int = 32
+
     # Upload limits
     MAX_UPLOAD_BYTES: int = 52_428_800  # 50 MB
     ALLOWED_MIME_TYPES: list[str] = [
