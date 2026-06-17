@@ -23,6 +23,7 @@ dependencies = [
     "tiktoken>=0.7.0",
     "pgvector>=0.3.0",
     "numpy>=1.26.0",
+    "google-genai>=1.0.0",
 ]
 
 [project.optional-dependencies]

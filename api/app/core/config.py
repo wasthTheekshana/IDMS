@@ -40,7 +40,9 @@ class Settings(BaseSettings):
 
     # Google AI (Gemini)
     GOOGLE_AI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-1.5-pro"
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+    AI_MAX_CONTEXT_CHUNKS: int = 10
+    AI_MAX_RESPONSE_TOKENS: int = 2048
 
     # Embeddings
     EMBED_MODEL: str = "mistral-embed"
