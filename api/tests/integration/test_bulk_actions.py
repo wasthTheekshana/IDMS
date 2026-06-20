@@ -93,3 +93,43 @@ async def test_bulk_delete_cross_org_returns_404(
                 json={"document_ids": [doc_a]},
             )
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Bulk download tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bulk_download_returns_zip(client: AsyncClient) -> None:
+    await _register(client, "dl1")
+    doc1 = await _create_doc(client, "report.pdf")
+
+    with patch(
+        "app.services.storage.get_object_bytes",
+        return_value=b"%PDF-1.4 fake content",
+    ):
+        resp = await client.post(
+            "/api/v1/documents/bulk/download",
+            json={"document_ids": [doc1]},
+        )
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/zip"
+    assert "documents-" in resp.headers["content-disposition"]
+    assert len(resp.content) > 0
+
+
+@pytest.mark.asyncio
+async def test_bulk_download_exceeds_limit_returns_400(
+    client: AsyncClient,
+) -> None:
+    await _register(client, "dl2")
+    ids = []
+    for i in range(21):
+        ids.append(await _create_doc(client, f"file{i}.pdf"))
+
+    resp = await client.post(
+        "/api/v1/documents/bulk/download",
+        json={"document_ids": ids},
+    )
+    assert resp.status_code == 400

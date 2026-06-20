@@ -158,3 +158,55 @@ async def bulk_delete(
         logger.warning("R2 bulk delete failed for keys=%s", r2_keys)
 
     return BulkDeleteResponse(deleted=count)
+
+
+_MAX_DOWNLOAD_FILES = 20
+_MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024  # 500 MB
+
+
+@router.post("/bulk/download")
+async def bulk_download(
+    body: BulkDocumentRequest,
+    current_user: CurrentUserDep,
+    session: AuthSession,
+) -> StreamingResponse:
+    if len(body.document_ids) > _MAX_DOWNLOAD_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot download more than {_MAX_DOWNLOAD_FILES} files at once",
+        )
+
+    repo = DocumentRepository(session)
+    docs = await repo.get_by_ids(body.document_ids, current_user.org_id)
+    if len(docs) != len(body.document_ids):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or more documents not found",
+        )
+
+    total_size = sum(d.size_bytes for d in docs)
+    if total_size > _MAX_DOWNLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Total file size exceeds 500 MB limit",
+        )
+
+    import io
+    import zipfile
+    from datetime import datetime as dt
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for doc in docs:
+            data = storage.get_object_bytes(doc.r2_key)
+            zf.writestr(doc.filename, data)
+    buf.seek(0)
+
+    ts = dt.utcnow().strftime("%Y%m%d-%H%M%S")
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="documents-{ts}.zip"',
+        },
+    )
