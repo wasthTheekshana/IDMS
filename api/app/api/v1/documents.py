@@ -1,19 +1,27 @@
 import asyncio
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from app.core.deps import AuthSession, CurrentUserDep
+from app.repositories.chunk import ChunkRepository
 from app.repositories.document import DocumentRepository
 from app.schemas.document import (
+    BulkDeleteResponse,
+    BulkDocumentRequest,
+    DocumentDetailResponse,
     DocumentResponse,
     UploadConfirmRequest,
     UploadInitRequest,
     UploadInitResponse,
 )
+from app.services import storage
 from app.services import upload as upload_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -48,19 +56,19 @@ async def list_documents(
     return [DocumentResponse.model_validate(d) for d in docs]
 
 
-@router.get("/{document_id}", response_model=DocumentResponse)
+@router.get("/{document_id}", response_model=DocumentDetailResponse)
 async def get_document(
     document_id: uuid.UUID,
     current_user: CurrentUserDep,
     session: AuthSession,
-) -> DocumentResponse:
+) -> DocumentDetailResponse:
     repo = DocumentRepository(session)
     doc = await repo.get_by_id(document_id, org_id=current_user.org_id)
     if not doc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         )
-    return DocumentResponse.model_validate(doc)
+    return DocumentDetailResponse.model_validate(doc)
 
 
 @router.get("/{document_id}/status")
@@ -116,3 +124,37 @@ async def stream_document_status(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Bulk actions
+# ---------------------------------------------------------------------------
+
+
+@router.post("/bulk/delete", response_model=BulkDeleteResponse)
+async def bulk_delete(
+    body: BulkDocumentRequest,
+    current_user: CurrentUserDep,
+    session: AuthSession,
+) -> BulkDeleteResponse:
+    repo = DocumentRepository(session)
+    docs = await repo.get_by_ids(body.document_ids, current_user.org_id)
+    if len(docs) != len(body.document_ids):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or more documents not found",
+        )
+
+    r2_keys = [d.r2_key for d in docs]
+    doc_ids = [d.id for d in docs]
+
+    chunk_repo = ChunkRepository(session)
+    await chunk_repo.delete_for_documents(doc_ids)
+    count = await repo.delete_by_ids(doc_ids, current_user.org_id)
+
+    try:
+        storage.delete_objects(r2_keys)
+    except Exception:
+        logger.warning("R2 bulk delete failed for keys=%s", r2_keys)
+
+    return BulkDeleteResponse(deleted=count)
