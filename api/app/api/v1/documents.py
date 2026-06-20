@@ -213,6 +213,14 @@ async def bulk_download(
 
 
 _EXCEL_TEXT_LIMIT = 32000  # Excel cell character limit
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe_excel_str(value: str) -> str:
+    """Prevent formula injection by prefixing suspicious cell values with apostrophe."""
+    if value and value[0] in _FORMULA_PREFIXES:
+        return "'" + value
+    return value
 
 
 @router.post("/bulk/export")
@@ -258,13 +266,13 @@ async def bulk_export(
             text = text[:_EXCEL_TEXT_LIMIT] + "... [truncated]"
         ws.append(
             [
-                doc.filename,
-                doc.mime_type,
+                _safe_excel_str(doc.filename),
+                _safe_excel_str(doc.mime_type),
                 round(doc.size_bytes / 1024, 1),
                 doc.page_count,
                 doc.status,
                 doc.created_at.isoformat() if doc.created_at else "",
-                text,
+                _safe_excel_str(text),
             ]
         )
 
