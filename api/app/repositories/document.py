@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document, DocumentStatus
@@ -49,6 +49,25 @@ class DocumentRepository:
             .order_by(Document.created_at.desc())
         )
         return result.scalars().all()
+
+    async def get_by_ids(
+        self, doc_ids: list[uuid.UUID], org_id: uuid.UUID
+    ) -> Sequence[Document]:
+        result = await self._s.execute(
+            select(Document)
+            .where(Document.id.in_(doc_ids))
+            .where(Document.org_id == org_id)
+        )
+        return result.scalars().all()
+
+    async def delete_by_ids(self, doc_ids: list[uuid.UUID], org_id: uuid.UUID) -> int:
+        result = await self._s.execute(
+            delete(Document)
+            .where(Document.id.in_(doc_ids))
+            .where(Document.org_id == org_id)
+        )
+        await self._s.flush()
+        return result.rowcount  # type: ignore[return-value]
 
     async def set_status(
         self,

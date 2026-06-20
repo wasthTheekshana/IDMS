@@ -21,6 +21,12 @@ class ChunkRepository:
         )
         await self._s.flush()
 
+    async def delete_for_documents(self, doc_ids: list[uuid.UUID]) -> None:
+        await self._s.execute(
+            delete(DocumentChunk).where(DocumentChunk.document_id.in_(doc_ids))
+        )
+        await self._s.flush()
+
     async def semantic_search(
         self, org_id: uuid.UUID, embedding: list[float], limit: int = 10
     ) -> list[DocumentChunk]:

@@ -58,3 +58,22 @@ def get_object_bytes(r2_key: str) -> bytes:
 
 def sha256_of_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def delete_objects(r2_keys: list[str]) -> None:
+    if not r2_keys:
+        return
+    client = _client()
+    objects = [{"Key": k} for k in r2_keys]
+    client.delete_objects(
+        Bucket=settings.R2_BUCKET, Delete={"Objects": objects, "Quiet": True}
+    )
+
+
+def presign_download(r2_key: str) -> str:
+    client = _client()
+    return client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": settings.R2_BUCKET, "Key": r2_key},
+        ExpiresIn=_PRESIGN_EXPIRY,
+    )
