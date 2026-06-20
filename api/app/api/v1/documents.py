@@ -210,3 +210,77 @@ async def bulk_download(
             "Content-Disposition": f'attachment; filename="documents-{ts}.zip"',
         },
     )
+
+
+_EXCEL_TEXT_LIMIT = 32000  # Excel cell character limit
+
+
+@router.post("/bulk/export")
+async def bulk_export(
+    body: BulkDocumentRequest,
+    current_user: CurrentUserDep,
+    session: AuthSession,
+) -> StreamingResponse:
+    repo = DocumentRepository(session)
+    docs = await repo.get_by_ids(body.document_ids, current_user.org_id)
+    if len(docs) != len(body.document_ids):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or more documents not found",
+        )
+
+    import io
+    from datetime import datetime as dt
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Documents"
+
+    columns = [
+        "Filename",
+        "Type",
+        "Size (KB)",
+        "Pages",
+        "Status",
+        "Uploaded At",
+        "Extracted Text",
+    ]
+    ws.append(columns)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    for doc in docs:
+        text = doc.extracted_text or ""
+        if len(text) > _EXCEL_TEXT_LIMIT:
+            text = text[:_EXCEL_TEXT_LIMIT] + "... [truncated]"
+        ws.append(
+            [
+                doc.filename,
+                doc.mime_type,
+                round(doc.size_bytes / 1024, 1),
+                doc.page_count,
+                doc.status,
+                doc.created_at.isoformat() if doc.created_at else "",
+                text,
+            ]
+        )
+
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or "")) for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 50)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    ts = dt.utcnow().strftime("%Y%m%d-%H%M%S")
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="documents-export-{ts}.xlsx"',
+        },
+    )

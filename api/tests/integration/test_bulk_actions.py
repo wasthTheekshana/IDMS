@@ -133,3 +133,53 @@ async def test_bulk_download_exceeds_limit_returns_400(
         json={"document_ids": ids},
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Bulk export tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bulk_export_returns_xlsx(client: AsyncClient) -> None:
+    await _register(client, "exp1")
+    doc1 = await _create_doc(client, "invoice.pdf")
+
+    resp = await client.post(
+        "/api/v1/documents/bulk/export",
+        json={"document_ids": [doc1]},
+    )
+    assert resp.status_code == 200
+    assert (
+        "spreadsheetml" in resp.headers["content-type"]
+        or "application/vnd" in resp.headers["content-type"]
+    )
+    assert "documents-export-" in resp.headers["content-disposition"]
+
+    import io
+
+    import openpyxl
+
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    ws = wb.active
+    headers = [cell.value for cell in ws[1]]
+    assert "Filename" in headers
+    assert "Type" in headers
+    assert "Status" in headers
+    assert ws.cell(row=2, column=1).value == "invoice.pdf"
+
+
+@pytest.mark.asyncio
+async def test_bulk_export_cross_org_returns_404(client: AsyncClient) -> None:
+    await _register(client, "exp2a")
+    doc_a = await _create_doc(client, "secret.pdf")
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client_b:
+        await _register(client_b, "exp2b")
+        resp = await client_b.post(
+            "/api/v1/documents/bulk/export",
+            json={"document_ids": [doc_a]},
+        )
+        assert resp.status_code == 404
