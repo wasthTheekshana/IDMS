@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class UploadInitRequest(BaseModel):
@@ -33,3 +33,24 @@ class DocumentResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class DocumentDetailResponse(DocumentResponse):
+    extracted_text: str | None
+
+
+class BulkDocumentRequest(BaseModel):
+    document_ids: list[uuid.UUID]
+
+    @field_validator("document_ids")
+    @classmethod
+    def validate_ids(cls, v: list[uuid.UUID]) -> list[uuid.UUID]:
+        if len(v) == 0:
+            raise ValueError("document_ids must not be empty")
+        if len(v) > 100:
+            raise ValueError("document_ids must not exceed 100 items")
+        return v
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted: int
