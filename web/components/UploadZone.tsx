@@ -46,107 +46,114 @@ export default function UploadZone({
     );
   }, []);
 
+  const uploadFileRef = useRef<(item: UploadItem) => Promise<void>>();
+
   const processNext = useCallback(() => {
     if (activeRef.current >= MAX_CONCURRENT) return;
     const next = queueRef.current.shift();
     if (!next) return;
     activeRef.current++;
-    uploadFile(next).finally(() => {
+    uploadFileRef.current!(next).finally(() => {
       activeRef.current--;
       processNext();
     });
   }, []);
 
-  async function uploadFile(item: UploadItem) {
-    const token = getAccessToken();
-    try {
-      updateItem(item.id, { status: "requesting", progress: 10 });
-      const initRes = await fetch(`${API}/api/v1/documents/upload-url`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          filename: item.file.name,
-          content_type: item.file.type,
-          size_bytes: item.file.size,
-        }),
-      });
-      if (!initRes.ok) {
-        updateItem(item.id, { status: "error", error: await initRes.text() });
-        return;
-      }
-      const { document_id, upload_url } = await initRes.json();
-      updateItem(item.id, {
-        status: "uploading",
-        progress: 30,
-        docId: document_id,
-      });
-
-      const uploadRes = await fetch(upload_url, {
-        method: "PUT",
-        headers: { "Content-Type": item.file.type },
-        body: item.file,
-      });
-      if (!uploadRes.ok) {
-        updateItem(item.id, {
-          status: "error",
-          error: "Upload to storage failed",
+  const uploadFile = useCallback(
+    async (item: UploadItem) => {
+      const token = getAccessToken();
+      try {
+        updateItem(item.id, { status: "requesting", progress: 10 });
+        const initRes = await fetch(`${API}/api/v1/documents/upload-url`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            filename: item.file.name,
+            content_type: item.file.type,
+            size_bytes: item.file.size,
+          }),
         });
-        return;
-      }
-      updateItem(item.id, { progress: 60 });
-
-      const confirmRes = await fetch(`${API}/api/v1/documents/confirm`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ document_id }),
-      });
-      if (!confirmRes.ok) {
-        updateItem(item.id, {
-          status: "error",
-          error: await confirmRes.text(),
-        });
-        return;
-      }
-
-      updateItem(item.id, { status: "processing", progress: 80 });
-
-      for (let i = 0; i < 150; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        try {
-          const res = await fetch(`${API}/api/v1/documents/${document_id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (!res.ok) continue;
-          const doc = await res.json();
-          if (doc.status === "ready" || doc.status === "indexed") {
-            updateItem(item.id, { status: "done", progress: 100 });
-            onUploadComplete?.();
-            return;
-          }
-          if (doc.status === "failed") {
-            updateItem(item.id, {
-              status: "error",
-              error: doc.error_message ?? "Processing failed",
-            });
-            return;
-          }
-        } catch {
-          continue;
+        if (!initRes.ok) {
+          updateItem(item.id, { status: "error", error: await initRes.text() });
+          return;
         }
+        const { document_id, upload_url } = await initRes.json();
+        updateItem(item.id, {
+          status: "uploading",
+          progress: 30,
+          docId: document_id,
+        });
+
+        const uploadRes = await fetch(upload_url, {
+          method: "PUT",
+          headers: { "Content-Type": item.file.type },
+          body: item.file,
+        });
+        if (!uploadRes.ok) {
+          updateItem(item.id, {
+            status: "error",
+            error: "Upload to storage failed",
+          });
+          return;
+        }
+        updateItem(item.id, { progress: 60 });
+
+        const confirmRes = await fetch(`${API}/api/v1/documents/confirm`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ document_id }),
+        });
+        if (!confirmRes.ok) {
+          updateItem(item.id, {
+            status: "error",
+            error: await confirmRes.text(),
+          });
+          return;
+        }
+
+        updateItem(item.id, { status: "processing", progress: 80 });
+
+        for (let i = 0; i < 150; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          try {
+            const res = await fetch(`${API}/api/v1/documents/${document_id}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) continue;
+            const doc = await res.json();
+            if (doc.status === "ready" || doc.status === "indexed") {
+              updateItem(item.id, { status: "done", progress: 100 });
+              onUploadComplete?.();
+              return;
+            }
+            if (doc.status === "failed") {
+              updateItem(item.id, {
+                status: "error",
+                error: doc.error_message ?? "Processing failed",
+              });
+              return;
+            }
+          } catch {
+            continue;
+          }
+        }
+      } catch (err) {
+        updateItem(item.id, {
+          status: "error",
+          error: err instanceof Error ? err.message : "Unknown error",
+        });
       }
-    } catch (err) {
-      updateItem(item.id, {
-        status: "error",
-        error: err instanceof Error ? err.message : "Unknown error",
-      });
-    }
-  }
+    },
+    [updateItem, onUploadComplete],
+  );
+
+  uploadFileRef.current = uploadFile;
 
   function handleFiles(files: FileList) {
     const newItems: UploadItem[] = [];
