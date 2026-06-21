@@ -30,6 +30,7 @@ export default function DocumentPreviewModal({
 
   useEffect(() => {
     const controller = new AbortController();
+    let blobUrl: string | null = null;
 
     async function fetchPreviewUrl() {
       const token = getAccessToken();
@@ -58,11 +59,18 @@ export default function DocumentPreviewModal({
         const data = await res.json();
         setContentType(data.content_type);
         if (data.preview_url) {
-          // For relative URLs (TIFF conversion), prepend the API base
-          const url = data.preview_url.startsWith("/")
-            ? `${API}${data.preview_url}?token=${token}`
-            : data.preview_url;
-          setPreviewUrl(url);
+          if (data.preview_url.startsWith("/")) {
+            const blobRes = await fetch(`${API}${data.preview_url}`, {
+              headers: { Authorization: `Bearer ${token}` },
+              signal: controller.signal,
+            });
+            if (!blobRes.ok) throw new Error("Failed to load preview image");
+            const blob = await blobRes.blob();
+            blobUrl = URL.createObjectURL(blob);
+            setPreviewUrl(blobUrl);
+          } else {
+            setPreviewUrl(data.preview_url);
+          }
         }
       } catch (err: unknown) {
         if (err instanceof Error && err.name !== "AbortError") {
@@ -74,7 +82,10 @@ export default function DocumentPreviewModal({
     }
 
     fetchPreviewUrl();
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
   }, [documentId]);
 
   useEffect(() => {
