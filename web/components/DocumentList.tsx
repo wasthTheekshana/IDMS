@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { getAccessToken } from "@/lib/auth";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
+import DocumentPreviewModal from "./DocumentPreviewModal";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -53,6 +54,7 @@ export default function DocumentList({
   const lastClickedRef = useRef<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [previewDoc, setPreviewDoc] = useState<Document | null>(null);
 
   const fetchDocs = useCallback(async () => {
     const token = getAccessToken();
@@ -511,6 +513,43 @@ export default function DocumentList({
                       </p>
                     </div>
                   </div>
+                  {(detail.status === "ready" ||
+                    detail.status === "indexed") && (
+                    <div style={{ marginBottom: "1rem" }}>
+                      <button
+                        onClick={() => setPreviewDoc(detail)}
+                        className="btn-primary"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "0.4rem",
+                          padding: "0.45rem 1rem",
+                          fontSize: "0.82rem",
+                        }}
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                          />
+                        </svg>
+                        Preview
+                      </button>
+                    </div>
+                  )}
                   {detail.extracted_text ? (
                     <div>
                       <p
@@ -638,6 +677,16 @@ export default function DocumentList({
             .map((d) => d.filename)}
           onConfirm={handleBulkDelete}
           onCancel={() => setShowDeleteModal(false)}
+        />
+      )}
+
+      {previewDoc && (
+        <DocumentPreviewModal
+          documentId={previewDoc.id}
+          filename={previewDoc.filename}
+          mimeType={previewDoc.mime_type}
+          extractedText={previewDoc.extracted_text}
+          onClose={() => setPreviewDoc(null)}
         />
       )}
     </div>
