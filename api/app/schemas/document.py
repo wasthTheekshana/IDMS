@@ -54,3 +54,8 @@ class BulkDocumentRequest(BaseModel):
 
 class BulkDeleteResponse(BaseModel):
     deleted: int
+
+
+class PreviewUrlResponse(BaseModel):
+    preview_url: str | None
+    content_type: str

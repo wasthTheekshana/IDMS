@@ -14,6 +14,7 @@ from app.schemas.document import (
     BulkDocumentRequest,
     DocumentDetailResponse,
     DocumentResponse,
+    PreviewUrlResponse,
     UploadConfirmRequest,
     UploadInitRequest,
     UploadInitResponse,
@@ -124,6 +125,66 @@ async def stream_document_status(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Preview
+# ---------------------------------------------------------------------------
+
+_TIFF_TYPES = {"image/tiff", "image/x-tiff"}
+_DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+@router.get("/{document_id}/preview-url", response_model=PreviewUrlResponse)
+async def get_preview_url(
+    document_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    session: AuthSession,
+) -> PreviewUrlResponse:
+    repo = DocumentRepository(session)
+    doc = await repo.get_by_id(document_id, org_id=current_user.org_id)
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+
+    mime = doc.mime_type.lower()
+
+    if mime in _TIFF_TYPES:
+        preview_url = f"/api/v1/documents/{document_id}/preview-tiff"
+        return PreviewUrlResponse(preview_url=preview_url, content_type="image/png")
+
+    if mime == _DOCX_TYPE:
+        return PreviewUrlResponse(preview_url=None, content_type=_DOCX_TYPE)
+
+    # PDF, JPEG, PNG — presigned R2 URL
+    url = storage.presign_download(doc.r2_key)
+    return PreviewUrlResponse(preview_url=url, content_type=mime)
+
+
+@router.get("/{document_id}/preview-tiff")
+async def preview_tiff(
+    document_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    session: AuthSession,
+) -> StreamingResponse:
+    repo = DocumentRepository(session)
+    doc = await repo.get_by_id(document_id, org_id=current_user.org_id)
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
+        )
+
+    from io import BytesIO
+
+    from PIL import Image
+
+    data = storage.get_object_bytes(doc.r2_key)
+    buf = BytesIO()
+    Image.open(BytesIO(data)).convert("RGB").save(buf, "PNG")
+    buf.seek(0)
+
+    return StreamingResponse(buf, media_type="image/png")
 
 
 # ---------------------------------------------------------------------------
