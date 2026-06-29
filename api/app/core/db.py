@@ -32,3 +32,18 @@ SessionLocal = async_sessionmaker(
 
 class Base(DeclarativeBase):
     pass
+
+
+def worker_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Create a fresh engine+session per Celery task to avoid event-loop conflicts."""
+    _engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=settings.DEBUG,
+        pool_pre_ping=True,
+        poolclass=NullPool,
+    )
+    return async_sessionmaker(
+        _engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )

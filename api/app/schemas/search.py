@@ -15,3 +15,4 @@ class SearchResponse(BaseModel):
     query: str
     hits: list[SearchHit]
     total: int
+    ai_summary: str | None = None

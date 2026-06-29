@@ -1,4 +1,4 @@
-"""AI service — document Q&A and summarization via Gemini."""
+"""AI service — document Q&A and summarization via Groq/Gemini."""
 
 import uuid
 
@@ -72,7 +72,7 @@ async def ask_document(
         f"## Question\n{question}"
     )
 
-    answer = await _call_gemini(prompt)
+    answer = await _call_llm(prompt)
     sources = [{"page": c["page"], "excerpt": str(c["content"])[:200]} for c in chunks]
     return {"answer": answer, "sources": sources}
 
@@ -96,7 +96,7 @@ async def ask_org(
         f"## Question\n{question}"
     )
 
-    answer = await _call_gemini(prompt)
+    answer = await _call_llm(prompt)
 
     doc_ids = list({str(c["document_id"]) for c in chunks})
     doc_result = await session.execute(
@@ -139,19 +139,42 @@ async def summarize_document(
         "Use bullet points for clarity.\n\n"
         f"## Document: {doc.filename}\n{text}"
     )
-    return await _call_gemini(prompt)
+    return await _call_llm(prompt)
+
+
+async def _call_llm(prompt: str) -> str:
+    """Call LLM: Groq (primary) → Gemini (fallback)."""
+    if settings.GROQ_API_KEY:
+        return await _call_groq(prompt)
+    if settings.GOOGLE_AI_API_KEY:
+        return await _call_llm(prompt)
+    return "[AI disabled: no GROQ_API_KEY or GOOGLE_AI_API_KEY configured]"
+
+
+async def _call_groq(prompt: str) -> str:
+    try:
+        from groq import AsyncGroq
+
+        client = AsyncGroq(api_key=settings.GROQ_API_KEY)
+        response = await client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=settings.AI_MAX_RESPONSE_TOKENS,
+        )
+        return response.choices[0].message.content or "[No response from AI]"
+    except Exception as exc:
+        return f"[AI error: {exc}]"
 
 
 async def _call_gemini(prompt: str) -> str:
-    """Call Gemini API. Returns answer text."""
-    if not settings.GOOGLE_AI_API_KEY:
-        return "[AI disabled: GOOGLE_AI_API_KEY not configured]"
+    try:
+        from google import genai
 
-    from google import genai
-
-    client = genai.Client(api_key=settings.GOOGLE_AI_API_KEY)
-    response = await client.aio.models.generate_content(
-        model=settings.GEMINI_MODEL,
-        contents=prompt,
-    )
-    return response.text or "[No response from AI]"
+        client = genai.Client(api_key=settings.GOOGLE_AI_API_KEY)
+        response = await client.aio.models.generate_content(
+            model=settings.GEMINI_MODEL,
+            contents=prompt,
+        )
+        return response.text or "[No response from AI]"
+    except Exception as exc:
+        return f"[AI error: {exc}]"

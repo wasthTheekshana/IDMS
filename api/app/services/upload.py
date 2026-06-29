@@ -62,7 +62,7 @@ async def confirm_upload(
     org_id: uuid.UUID,
     session: AsyncSession,
 ) -> DocumentResponse:
-    from app.workers.tasks import run_ocr
+    from app.workers.tasks import launch_pipeline
 
     repo = DocumentRepository(session)
     doc = await repo.get_by_id(body.document_id, org_id=org_id)
@@ -78,11 +78,7 @@ async def confirm_upload(
 
     await repo.set_status(doc.id, DocumentStatus.PROCESSING)
 
-    run_ocr.apply_async(
-        args=[str(doc.id), str(org_id)],
-        queue="ocr",
-        task_id=f"ocr-{doc.id}",
-    )
+    launch_pipeline(str(doc.id), str(org_id))
 
     # Re-fetch after Core UPDATE so all server-generated columns (updated_at) are fresh
     refreshed = await repo.get_by_id(doc.id, org_id=org_id)

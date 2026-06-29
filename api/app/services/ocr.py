@@ -29,7 +29,7 @@ class MistralOcr:
     async def extract(self, file_bytes: bytes, mime_type: str) -> OcrResult:
         import base64
 
-        from mistralai import Mistral
+        from mistralai.client.sdk import Mistral
 
         client = Mistral(api_key=settings.MISTRAL_API_KEY)
         b64 = base64.b64encode(file_bytes).decode()

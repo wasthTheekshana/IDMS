@@ -14,9 +14,12 @@ class MistralEmbed:
     """Embed texts via Mistral mistral-embed (1024-dim)."""
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        from mistralai import Mistral
+        from mistralai.client.sdk import Mistral
 
-        client = Mistral(api_key=settings.MISTRAL_API_KEY)
+        client = Mistral(
+            api_key=settings.MISTRAL_API_KEY,
+            timeout_ms=60_000,
+        )
         response = await client.embeddings.create_async(
             model=settings.EMBED_MODEL,
             inputs=texts,

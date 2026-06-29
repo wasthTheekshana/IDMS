@@ -25,58 +25,144 @@ export default function LoginPage() {
   }
 
   return (
-    <main
+    <div
       style={{
-        maxWidth: 400,
-        margin: "4rem auto",
-        fontFamily: "system-ui",
-        padding: "0 1rem",
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background:
+          "linear-gradient(135deg, #eff6ff 0%, #f8fafc 50%, #f0fdf4 100%)",
+        padding: "1rem",
       }}
     >
-      <h1>Sign in to IDMS</h1>
-      <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: "1rem" }}>
-          <label>Email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
+      <div style={{ width: "100%", maxWidth: 420 }}>
+        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+          <div
             style={{
-              display: "block",
-              width: "100%",
-              padding: "0.5rem",
+              width: 48,
+              height: 48,
+              background: "var(--brand-500)",
+              borderRadius: "var(--radius-md)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: "0.75rem",
+            }}
+          >
+            <span
+              style={{ color: "#fff", fontSize: "1.4rem", fontWeight: 700 }}
+            >
+              D
+            </span>
+          </div>
+          <h1
+            style={{
+              fontSize: "1.5rem",
+              fontWeight: 700,
+              color: "var(--gray-900)",
+            }}
+          >
+            Welcome back
+          </h1>
+          <p
+            style={{
+              color: "var(--gray-500)",
+              fontSize: "0.925rem",
               marginTop: "0.25rem",
             }}
-          />
+          >
+            Sign in to your IDMS account
+          </p>
         </div>
-        <div style={{ marginBottom: "1rem" }}>
-          <label>Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={{
-              display: "block",
-              width: "100%",
-              padding: "0.5rem",
-              marginTop: "0.25rem",
-            }}
-          />
+
+        <div className="card" style={{ padding: "2rem" }}>
+          <form onSubmit={handleSubmit}>
+            <div style={{ marginBottom: "1.25rem" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: 500,
+                  color: "var(--gray-700)",
+                  marginBottom: "0.35rem",
+                }}
+              >
+                Email address
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                required
+              />
+            </div>
+            <div style={{ marginBottom: "1.5rem" }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "0.85rem",
+                  fontWeight: 500,
+                  color: "var(--gray-700)",
+                  marginBottom: "0.35rem",
+                }}
+              >
+                Password
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+            {error && (
+              <div
+                style={{
+                  padding: "0.6rem 0.85rem",
+                  background: "var(--red-50)",
+                  color: "var(--red-700)",
+                  borderRadius: "var(--radius-sm)",
+                  fontSize: "0.85rem",
+                  marginBottom: "1rem",
+                }}
+              >
+                {error}
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn-primary"
+              style={{ width: "100%", padding: "0.7rem" }}
+            >
+              {loading ? "Signing in..." : "Sign in"}
+            </button>
+          </form>
         </div>
-        {error && <p style={{ color: "red" }}>{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          style={{ padding: "0.5rem 1.5rem" }}
+
+        <p
+          style={{
+            textAlign: "center",
+            marginTop: "1.25rem",
+            fontSize: "0.9rem",
+            color: "var(--gray-500)",
+          }}
         >
-          {loading ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
-      <p style={{ marginTop: "1rem" }}>
-        No account? <a href="/register">Register</a>
-      </p>
-    </main>
+          No account?{" "}
+          <a
+            href="/register"
+            style={{
+              color: "var(--brand-600)",
+              textDecoration: "none",
+              fontWeight: 500,
+            }}
+          >
+            Create one
+          </a>
+        </p>
+      </div>
+    </div>
   );
 }

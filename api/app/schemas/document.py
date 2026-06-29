@@ -37,6 +37,7 @@ class DocumentResponse(BaseModel):
 
 class DocumentDetailResponse(DocumentResponse):
     extracted_text: str | None
+    preview_url: str | None = None
 
 
 class BulkDocumentRequest(BaseModel):
@@ -59,3 +60,21 @@ class BulkDeleteResponse(BaseModel):
 class PreviewUrlResponse(BaseModel):
     preview_url: str | None
     content_type: str
+
+
+class CompareRequest(BaseModel):
+    doc_a_id: uuid.UUID
+    doc_b_id: uuid.UUID
+
+
+class CompareResponse(BaseModel):
+    doc_a: "CompareDoc"
+    doc_b: "CompareDoc"
+    ai_summary: str | None = None
+
+
+class CompareDoc(BaseModel):
+    id: uuid.UUID
+    filename: str
+    extracted_text: str | None
+    page_count: int | None

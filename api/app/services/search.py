@@ -1,5 +1,6 @@
 """Hybrid search: semantic cosine + full-text tsvector, RRF-merged."""
 
+import logging
 import uuid
 from collections import defaultdict
 
@@ -13,6 +14,7 @@ from app.schemas.search import SearchHit, SearchResponse
 from app.services.embed import MistralEmbed, StubEmbed
 
 _ALPHA = 0.7  # weight for semantic; (1-_ALPHA) for full-text
+logger = logging.getLogger(__name__)
 
 
 async def hybrid_search(
@@ -20,16 +22,27 @@ async def hybrid_search(
     org_id: uuid.UUID,
     session: AsyncSession,
     limit: int = 10,
+    document_id: uuid.UUID | None = None,
 ) -> SearchResponse:
-    provider: MistralEmbed | StubEmbed = (
-        MistralEmbed() if settings.MISTRAL_API_KEY else StubEmbed()
-    )
-    embeddings = await provider.embed_batch([query])
-    query_vec = embeddings[0]
-
     repo = ChunkRepository(session)
-    semantic_hits = await repo.semantic_search(org_id, query_vec, limit=limit * 2)
+
+    semantic_hits = []
+    try:
+        provider: MistralEmbed | StubEmbed = (
+            MistralEmbed() if settings.MISTRAL_API_KEY else StubEmbed()
+        )
+        embeddings = await provider.embed_batch([query])
+        query_vec = embeddings[0]
+        hits = await repo.semantic_search(org_id, query_vec, limit=limit * 2)
+        if document_id:
+            hits = [c for c in hits if c.document_id == document_id]
+        semantic_hits = hits
+    except Exception:
+        logger.warning("Semantic search failed, falling back to fulltext-only")
+
     text_hits = await repo.fulltext_search(org_id, query, limit=limit * 2)
+    if document_id:
+        text_hits = [c for c in text_hits if c.document_id == document_id]
 
     # Reciprocal Rank Fusion weighted by _ALPHA
     scores: dict[uuid.UUID, float] = defaultdict(float)
@@ -65,4 +78,23 @@ async def hybrid_search(
             )
         )
 
-    return SearchResponse(query=query, hits=hits, total=len(hits))
+    ai_summary = None
+    if hits:
+        try:
+            from app.services.ai import _call_llm
+
+            context = "\n\n".join(
+                f"[p.{h.page}, {h.filename}]\n{h.content[:300]}" for h in hits[:5]
+            )
+            ai_summary = await _call_llm(
+                "Based on the search results below, write a brief answer to the "
+                f'user\'s query: "{query}"\n\n'
+                "Be concise (2-4 sentences). Cite page numbers.\n\n"
+                f"{context}"
+            )
+        except Exception:
+            logger.warning("AI summary generation failed")
+
+    return SearchResponse(
+        query=query, hits=hits, total=len(hits), ai_summary=ai_summary
+    )

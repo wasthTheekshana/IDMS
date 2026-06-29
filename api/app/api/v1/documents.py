@@ -12,6 +12,9 @@ from app.repositories.document import DocumentRepository
 from app.schemas.document import (
     BulkDeleteResponse,
     BulkDocumentRequest,
+    CompareDoc,
+    CompareRequest,
+    CompareResponse,
     DocumentDetailResponse,
     DocumentResponse,
     PreviewUrlResponse,
@@ -69,7 +72,12 @@ async def get_document(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Document not found"
         )
-    return DocumentDetailResponse.model_validate(doc)
+    detail = DocumentDetailResponse.model_validate(doc)
+    try:
+        detail.preview_url = storage.presign_download(doc.r2_key)
+    except Exception:
+        detail.preview_url = None
+    return detail
 
 
 @router.get("/{document_id}/status")
@@ -185,6 +193,60 @@ async def preview_tiff(
     buf.seek(0)
 
     return StreamingResponse(buf, media_type="image/png")
+
+
+# ---------------------------------------------------------------------------
+# Compare
+# ---------------------------------------------------------------------------
+
+
+@router.post("/compare", response_model=CompareResponse)
+async def compare_documents(
+    body: CompareRequest,
+    current_user: CurrentUserDep,
+    session: AuthSession,
+) -> CompareResponse:
+    repo = DocumentRepository(session)
+    doc_a = await repo.get_by_id(body.doc_a_id, org_id=current_user.org_id)
+    doc_b = await repo.get_by_id(body.doc_b_id, org_id=current_user.org_id)
+    if not doc_a or not doc_b:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or both documents not found",
+        )
+
+    ai_summary = None
+    text_a = (doc_a.extracted_text or "")[:5000]
+    text_b = (doc_b.extracted_text or "")[:5000]
+    if text_a and text_b:
+        try:
+            from app.services.ai import _call_llm
+
+            prompt = (
+                "Compare these two documents. Summarize the key differences "
+                "and similarities in 3-5 bullet points. Be concise.\n\n"
+                f"## Document A: {doc_a.filename}\n{text_a}\n\n"
+                f"## Document B: {doc_b.filename}\n{text_b}"
+            )
+            ai_summary = await _call_llm(prompt)
+        except Exception:
+            logger.warning("AI comparison failed")
+
+    return CompareResponse(
+        doc_a=CompareDoc(
+            id=doc_a.id,
+            filename=doc_a.filename,
+            extracted_text=doc_a.extracted_text,
+            page_count=doc_a.page_count,
+        ),
+        doc_b=CompareDoc(
+            id=doc_b.id,
+            filename=doc_b.filename,
+            extracted_text=doc_b.extracted_text,
+            page_count=doc_b.page_count,
+        ),
+        ai_summary=ai_summary,
+    )
 
 
 # ---------------------------------------------------------------------------

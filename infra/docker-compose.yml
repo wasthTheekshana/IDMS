@@ -1,5 +1,6 @@
-# infra/docker-compose.yml
+# infra/docker-compose.yml — Full production-local stack
 services:
+  # ---- Infrastructure ----
   postgres:
     image: pgvector/pgvector:pg16
     environment:
@@ -12,26 +13,47 @@ services:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U idms_app -d idms"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 30
+      start_period: 60s
 
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6379:6379"
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  # ---- Migrations (run once then exit) ----
+  migrate:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    command: ["sh", "scripts/migrate.sh"]
+    env_file: ../.env.docker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://idms_app:devpassword@postgres:5432/idms
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---- API ----
   api:
     build:
       context: ../api
       dockerfile: Dockerfile
-    env_file: ../.env
+    env_file: ../.env.docker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://idms_app:devpassword@postgres:5432/idms
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
     depends_on:
@@ -39,20 +61,61 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
+  # ---- Celery Worker ----
   worker:
     build:
       context: ../api
       dockerfile: Dockerfile
     command: >
-      uv run celery -A app.workers.celery_app worker
+      uv run --no-sync celery -A app.workers.celery_app worker
       -Q ocr,embed,ai,default -c 4 --loglevel=info
-    env_file: ../.env
+    env_file: ../.env.docker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://idms_app:devpassword@postgres:5432/idms
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---- Celery Beat (scheduler) ----
+  beat:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    command: >
+      uv run --no-sync celery -A app.workers.celery_app beat
+      --loglevel=info -s /tmp/celerybeat-schedule
+    env_file: ../.env.docker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://idms_app:devpassword@postgres:5432/idms
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---- Frontend (Next.js) ----
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
 
 volumes:
   pgdata: {}
+  redisdata: {}

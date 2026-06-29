@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     AI_MAX_CONTEXT_CHUNKS: int = 10
     AI_MAX_RESPONSE_TOKENS: int = 2048
 
+    # Groq
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
     # Embeddings
     EMBED_MODEL: str = "mistral-embed"
     EMBED_DIM: int = 1024
