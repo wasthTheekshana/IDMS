@@ -19,6 +19,7 @@ from app.api.v1.templates import router as templates_router
 from app.api.v1.users import router as users_router
 from app.core.config import settings
 from app.core.logging import configure_logging
+from app.core.middleware import SecurityHeadersMiddleware
 from app.core.telemetry import configure_sentry
 
 limiter = Limiter(key_func=get_remote_address)
@@ -38,6 +39,8 @@ def create_app() -> FastAPI:
         docs_url="/api/docs",
         redoc_url="/api/redoc",
     )
+
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.add_middleware(
         CORSMiddleware,
