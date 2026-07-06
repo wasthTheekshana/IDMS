@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     # Sentry (empty = disabled)
     SENTRY_DSN: str = ""
 
+    # CORS — override in production with the deployed web origin(s)
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ]
+
     # JWT — JWT_SECRET_KEY has no default; Pydantic will reject startup if missing
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
