@@ -1,4 +1,4 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -17,6 +17,16 @@ async def clean_db() -> None:
     )
     async with SessionLocal.begin() as session:
         await session.execute(text(_sql))
+
+
+@pytest.fixture(autouse=True)
+def _disable_rate_limits() -> Generator[None, None, None]:
+    """Rate limits key on client IP; all test traffic shares one IP."""
+    from app.core.ratelimit import limiter
+
+    limiter.enabled = False
+    yield
+    limiter.enabled = False
 
 
 @pytest.fixture

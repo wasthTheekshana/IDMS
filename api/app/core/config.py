@@ -30,6 +30,9 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3001",
     ]
 
+    # Rate limiting
+    RATE_LIMIT_ENABLED: bool = True
+
     # JWT — JWT_SECRET_KEY has no default; Pydantic will reject startup if missing
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"

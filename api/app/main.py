@@ -3,12 +3,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import (  # type: ignore[import-untyped]
-    Limiter,
-    _rate_limit_exceeded_handler,
-)
-from slowapi.errors import RateLimitExceeded  # type: ignore[import-untyped]
-from slowapi.util import get_remote_address  # type: ignore[import-untyped]
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.api.v1.ai import router as ai_router
 from app.api.v1.auth import router as auth_router
@@ -20,9 +16,8 @@ from app.api.v1.users import router as users_router
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.middleware import SecurityHeadersMiddleware
+from app.core.ratelimit import limiter
 from app.core.telemetry import configure_sentry
-
-limiter = Limiter(key_func=get_remote_address)
 
 
 @asynccontextmanager
@@ -50,6 +45,7 @@ def create_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type"],
     )
 
+    limiter.enabled = settings.RATE_LIMIT_ENABLED
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
