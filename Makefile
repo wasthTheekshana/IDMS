@@ -1,5 +1,6 @@
 .PHONY: up down test test-unit test-integration test-security \
-        migrate migrate-down seed lint format logs shell-api
+        migrate migrate-down seed lint format logs shell-api \
+        backup restore-drill
 
 up:
 	docker compose -f infra/docker-compose.yml up -d --build
@@ -34,6 +35,12 @@ lint:
 
 format:
 	cd api && uv run ruff format . && uv run ruff check --fix .
+
+backup:
+	bash infra/scripts/backup.sh
+
+restore-drill:
+	bash infra/scripts/restore.sh $(FILE) idms_restore_drill
 
 logs:
 	docker compose -f infra/docker-compose.yml logs -f
