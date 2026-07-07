@@ -1,4 +1,5 @@
 from celery import Celery  # type: ignore[import-untyped]
+from celery.schedules import crontab  # type: ignore[import-untyped]
 
 from app.core.config import settings
 
@@ -35,6 +36,14 @@ celery_app.conf.update(
         "heal-stuck-documents": {
             "task": "app.workers.tasks.heal_stuck_documents",
             "schedule": 120.0,
+        },
+        "daily-cost-report": {
+            "task": "app.workers.tasks.report_api_costs",
+            "schedule": crontab(hour=1, minute=0),
+        },
+        "queue-depth-monitor": {
+            "task": "app.workers.tasks.monitor_queue_depths",
+            "schedule": 300.0,
         },
     },
 )
