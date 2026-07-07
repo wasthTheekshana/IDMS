@@ -1,6 +1,6 @@
 .PHONY: up down test test-unit test-integration test-security \
         migrate migrate-down seed lint format logs shell-api \
-        backup restore-drill
+        backup restore-drill load-test
 
 up:
 	docker compose -f infra/docker-compose.yml up -d --build
@@ -35,6 +35,10 @@ lint:
 
 format:
 	cd api && uv run ruff format . && uv run ruff check --fix .
+
+load-test:
+	cd api && uv run locust -f ../infra/load/locustfile.py \
+		--host http://localhost:8000 -u 50 -r 5 --run-time 3m --headless
 
 backup:
 	bash infra/scripts/backup.sh
