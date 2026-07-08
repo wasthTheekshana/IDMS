@@ -4,8 +4,22 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.core.db import SessionLocal
 from app.main import app
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """The clean_db fixture TRUNCATEs every table — refuse to aim it at a
+    real database. Run tests with DATABASE_URL pointing at *_test only
+    (make test does this automatically)."""
+    db_name = settings.DATABASE_URL.rsplit("/", 1)[-1]
+    if not db_name.endswith("_test"):
+        pytest.exit(
+            f"Refusing to run tests against non-test database '{db_name}'. "
+            "Set DATABASE_URL to an *_test database (see 'make test').",
+            returncode=1,
+        )
 
 
 @pytest.fixture(autouse=True)

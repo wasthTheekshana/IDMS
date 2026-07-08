@@ -1,4 +1,4 @@
-.PHONY: up down test test-unit test-integration test-security \
+.PHONY: up down test test-unit test-integration test-security test-db \
         migrate migrate-down seed lint format logs shell-api \
         backup restore-drill load-test
 
@@ -8,17 +8,26 @@ up:
 down:
 	docker compose -f infra/docker-compose.yml down
 
+# Tests TRUNCATE all tables — always run them against idms_test, never idms.
+TEST_ENV = TESTING=true DATABASE_URL=postgresql+asyncpg://idms_app:devpassword@127.0.0.1:5432/idms_test
+
 test:
-	cd api && uv run pytest tests/ -v --tb=short
+	cd api && $(TEST_ENV) uv run pytest tests/ -v --tb=short
 
 test-unit:
-	cd api && uv run pytest tests/unit/ -v
+	cd api && $(TEST_ENV) uv run pytest tests/unit/ -v
 
 test-integration:
-	cd api && uv run pytest tests/integration/ -v
+	cd api && $(TEST_ENV) uv run pytest tests/integration/ -v
 
 test-security:
-	cd api && uv run pytest tests/security/ -v
+	cd api && $(TEST_ENV) uv run pytest tests/security/ -v
+
+test-db:
+	docker compose -f infra/docker-compose.yml exec -T postgres \
+		psql -U idms_app -d postgres -c "SELECT 1 FROM pg_database WHERE datname='idms_test'" | grep -q "1 row" || \
+		docker compose -f infra/docker-compose.yml exec -T postgres psql -U idms_app -d postgres -c "CREATE DATABASE idms_test;"
+	cd api && DATABASE_URL=postgresql+asyncpg://idms_app:devpassword@127.0.0.1:5432/idms_test uv run alembic upgrade head
 
 migrate:
 	cd api && uv run alembic upgrade head

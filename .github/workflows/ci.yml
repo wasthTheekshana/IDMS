@@ -38,6 +38,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://idms_app:testpassword@localhost:5432/idms_test
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: ci-test-secret-key-minimum-32-chars-here
+      TESTING: "true"
 
     defaults:
       run:
