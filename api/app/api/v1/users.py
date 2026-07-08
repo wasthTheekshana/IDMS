@@ -10,6 +10,14 @@ from app.schemas.user import UsageResponse, UserResponse
 router = APIRouter(prefix="/users", tags=["users"])
 
 
+@router.get("", response_model=list[UserResponse])
+async def list_users(
+    current_user: CurrentUserDep, session: AuthSession
+) -> list[UserResponse]:
+    users = await UserRepository(session).list_by_org(current_user.org_id)
+    return [UserResponse.model_validate(u) for u in users]
+
+
 @router.get("/me/usage", response_model=UsageResponse)
 async def get_my_usage(
     current_user: CurrentUserDep, session: AuthSession

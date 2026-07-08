@@ -32,6 +32,12 @@ class UserRepository:
         await self._s.flush()
         return user
 
+    async def list_by_org(self, org_id: uuid.UUID) -> list[User]:
+        result = await self._s.execute(
+            select(User).where(User.org_id == org_id).order_by(User.created_at)
+        )
+        return list(result.scalars().all())
+
     async def get_by_email(self, email: str) -> User | None:
         result = await self._s.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
