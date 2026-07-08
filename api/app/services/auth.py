@@ -86,6 +86,12 @@ async def login(body: LoginRequest, session: AsyncSession) -> TokenResponse:
             detail="Account temporarily locked",
         )
 
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account is deactivated. Contact your organization admin.",
+        )
+
     if not verify_password(body.password, user.password_hash):
         # Use a separate transaction so the failed-login count is committed
         # even though the outer transaction will rollback on HTTPException.
