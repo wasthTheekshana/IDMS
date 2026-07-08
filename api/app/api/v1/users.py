@@ -2,12 +2,24 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.core.deps import AuthSession, CurrentUserDep
+from app.core.deps import AuthSession, CurrentUser, CurrentUserDep, require_role
+from app.models.user import UserRole
 from app.repositories.organization import OrgRepository
 from app.repositories.user import UserRepository
-from app.schemas.user import UsageResponse, UserResponse
+from app.schemas.user import UsageResponse, UserCreateRequest, UserResponse
+from app.services import users as users_service
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+@router.post("", response_model=UserResponse, status_code=201)
+async def create_user(
+    body: UserCreateRequest,
+    session: AuthSession,
+    current_user: CurrentUser = require_role(UserRole.OWNER, UserRole.ADMIN),
+) -> UserResponse:
+    user = await users_service.create_org_user(body, current_user, session)
+    return UserResponse.model_validate(user)
 
 
 @router.get("", response_model=list[UserResponse])
