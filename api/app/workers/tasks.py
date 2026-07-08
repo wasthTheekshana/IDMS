@@ -325,3 +325,70 @@ async def _retry_or_fail(
     assert isinstance(doc_id, __import__("uuid").UUID)
     await doc_repo.set_status(doc_id, DocumentStatus.FAILED, error_message=message)
     return {"status": "failed"}
+
+
+# ---------------------------------------------------------------------------
+# 5. Monitoring beat tasks — daily cost report + queue depth alerts
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(queue="default", name="app.workers.tasks.report_api_costs")  # type: ignore[untyped-decorator]
+def report_api_costs() -> dict[str, object]:
+    """Daily: aggregate last-24h third-party API spend; alert past threshold."""
+    return asyncio.run(_report_api_costs_async())
+
+
+async def _report_api_costs_async() -> dict[str, object]:
+    import sentry_sdk
+
+    from app.core.config import settings
+    from app.core.db import SessionLocal
+    from app.services.monitoring import summarize_api_costs
+
+    async with SessionLocal() as session:
+        summaries = await summarize_api_costs(session, since_hours=24)
+
+    total = round(sum(s.total_cost_usd for s in summaries), 6)
+    alert = total > settings.DAILY_COST_ALERT_USD
+    services = [
+        {
+            "service": s.service,
+            "cost_usd": s.total_cost_usd,
+            "tokens": s.total_tokens,
+            "pages": s.total_pages,
+        }
+        for s in summaries
+    ]
+    logger.info(
+        "daily_api_cost_report total_cost_usd=%s alert=%s services=%s",
+        total,
+        alert,
+        services,
+    )
+    if alert:
+        sentry_sdk.capture_message(
+            f"Daily API spend ${total:.2f} exceeded threshold "
+            f"${settings.DAILY_COST_ALERT_USD:.2f}",
+            level="warning",
+        )
+    return {"total_cost_usd": total, "alert": alert, "services": services}
+
+
+@celery_app.task(queue="default", name="app.workers.tasks.monitor_queue_depths")  # type: ignore[untyped-decorator]
+def monitor_queue_depths() -> dict[str, object]:
+    """Every 5 min: alert if any Celery queue (incl. DLQ) grows past threshold."""
+    import sentry_sdk
+
+    from app.core.config import settings
+    from app.services.monitoring import check_queue_depths
+
+    depths = check_queue_depths()
+    over = {q: n for q, n in depths.items() if n > settings.QUEUE_ALERT_DEPTH}
+    alert = bool(over)
+    logger.info("queue_depth_check depths=%s alert=%s", depths, alert)
+    if alert:
+        sentry_sdk.capture_message(
+            f"Celery queue depth over {settings.QUEUE_ALERT_DEPTH}: {over}",
+            level="warning",
+        )
+    return {"depths": depths, "alert": alert}
