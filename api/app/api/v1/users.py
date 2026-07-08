@@ -6,7 +6,12 @@ from app.core.deps import AuthSession, CurrentUser, CurrentUserDep, require_role
 from app.models.user import UserRole
 from app.repositories.organization import OrgRepository
 from app.repositories.user import UserRepository
-from app.schemas.user import UsageResponse, UserCreateRequest, UserResponse
+from app.schemas.user import (
+    UsageResponse,
+    UserCreateRequest,
+    UserResponse,
+    UserUpdateRequest,
+)
 from app.services import users as users_service
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -28,6 +33,17 @@ async def list_users(
 ) -> list[UserResponse]:
     users = await UserRepository(session).list_by_org(current_user.org_id)
     return [UserResponse.model_validate(u) for u in users]
+
+
+@router.patch("/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: uuid.UUID,
+    body: UserUpdateRequest,
+    session: AuthSession,
+    current_user: CurrentUser = require_role(UserRole.OWNER, UserRole.ADMIN),
+) -> UserResponse:
+    user = await users_service.update_org_user(user_id, body, current_user, session)
+    return UserResponse.model_validate(user)
 
 
 @router.get("/me/usage", response_model=UsageResponse)

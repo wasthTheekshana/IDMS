@@ -51,6 +51,20 @@ class UserRepository:
         result = await self._s.execute(q)
         return result.scalar_one_or_none()
 
+    async def update_user(
+        self,
+        user: User,
+        *,
+        role: UserRole | None = None,
+        is_active: bool | None = None,
+    ) -> User:
+        if role is not None:
+            user.role = role
+        if is_active is not None:
+            user.is_active = is_active
+        await self._s.flush()
+        return user
+
     async def increment_failed_login(self, user: User) -> None:
         user.failed_login_count += 1
         if user.failed_login_count >= _MAX_FAILED:

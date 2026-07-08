@@ -121,6 +121,97 @@ async def test_cannot_create_owner_role(
     assert resp.status_code == 403
 
 
+# ---- update user (role / deactivate) ----
+
+
+async def _create_and_get_id(client: AsyncClient, payload: dict) -> str:  # type: ignore[type-arg]
+    resp = await client.post("/api/v1/users", json=payload)
+    assert resp.status_code == 201, resp.text
+    return str(resp.json()["id"])
+
+
+async def test_owner_deactivates_member_blocking_login(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    client, _ = auth_client
+    user_id = await _create_and_get_id(client, _NEW_USER)
+
+    resp = await client.patch(f"/api/v1/users/{user_id}", json={"is_active": False})
+    assert resp.status_code == 200
+    assert resp.json()["is_active"] is False
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "member-1@example.com", "password": "memberpass123"},
+    )
+    assert login.status_code == 401
+
+
+async def test_owner_promotes_member_to_admin(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    client, _ = auth_client
+    user_id = await _create_and_get_id(client, _NEW_USER)
+    resp = await client.patch(f"/api/v1/users/{user_id}", json={"role": "admin"})
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "admin"
+
+
+async def test_cannot_modify_owner(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    client, _ = auth_client
+    me = await client.get("/api/v1/users/me")
+    owner_id = me.json()["id"]
+    resp = await client.patch(f"/api/v1/users/{owner_id}", json={"is_active": False})
+    assert resp.status_code == 403
+
+
+async def test_admin_cannot_modify_admin(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+    client: AsyncClient,
+) -> None:
+    owner_client, _ = auth_client
+    admin_a = {
+        "email": "adm-a@example.com",
+        "password": "password1234",
+        "role": "admin",
+    }
+    admin_b = {
+        "email": "adm-b@example.com",
+        "password": "password1234",
+        "role": "admin",
+    }
+    await _create_and_get_id(owner_client, admin_a)
+    admin_b_id = await _create_and_get_id(owner_client, admin_b)
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "adm-a@example.com", "password": "password1234"},
+    )
+    token = login.json()["access_token"]
+    resp = await client.patch(
+        f"/api/v1/users/{admin_b_id}",
+        json={"is_active": False},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 403
+
+
+async def test_cross_org_update_returns_404(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+    second_auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    client_a, _ = auth_client
+    client_b, _ = second_auth_client
+    me_b = await client_b.get("/api/v1/users/me")
+    b_owner_id = me_b.json()["id"]
+    resp = await client_a.patch(
+        f"/api/v1/users/{b_owner_id}", json={"is_active": False}
+    )
+    assert resp.status_code == 404
+
+
 async def test_admin_cannot_create_admin(
     auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
     client: AsyncClient,

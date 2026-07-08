@@ -23,6 +23,11 @@ class UserCreateRequest(BaseModel):
     role: UserRole = UserRole.MEMBER
 
 
+class UserUpdateRequest(BaseModel):
+    role: UserRole | None = None
+    is_active: bool | None = None
+
+
 class UsageResponse(BaseModel):
     plan: str
     monthly_page_quota: int
