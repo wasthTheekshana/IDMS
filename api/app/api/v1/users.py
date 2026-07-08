@@ -3,10 +3,28 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 
 from app.core.deps import AuthSession, CurrentUserDep
+from app.repositories.organization import OrgRepository
 from app.repositories.user import UserRepository
-from app.schemas.user import UserResponse
+from app.schemas.user import UsageResponse, UserResponse
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+@router.get("/me/usage", response_model=UsageResponse)
+async def get_my_usage(
+    current_user: CurrentUserDep, session: AuthSession
+) -> UsageResponse:
+    org = await OrgRepository(session).get_by_id(current_user.org_id)
+    if not org:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found"
+        )
+    return UsageResponse(
+        plan=org.plan,
+        monthly_page_quota=org.monthly_page_quota,
+        pages_used_this_month=org.pages_used_this_month,
+        remaining_pages=max(0, org.monthly_page_quota - org.pages_used_this_month),
+    )
 
 
 @router.get("/me", response_model=UserResponse)

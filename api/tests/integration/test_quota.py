@@ -72,6 +72,24 @@ async def test_adjust_usage_clamps_at_zero() -> None:
     assert await _get_usage(org_id) == 0
 
 
+async def test_usage_endpoint_returns_plan_and_quota(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    client, _ = auth_client
+    resp = await client.get("/api/v1/users/me/usage")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["plan"] == "free"
+    assert body["monthly_page_quota"] == 500
+    assert body["pages_used_this_month"] == 0
+    assert body["remaining_pages"] == 500
+
+
+async def test_usage_endpoint_requires_auth(client: AsyncClient) -> None:
+    resp = await client.get("/api/v1/users/me/usage")
+    assert resp.status_code == 401
+
+
 async def test_reset_monthly_usage_zeroes_all_orgs() -> None:
     import asyncio
 
