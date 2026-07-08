@@ -10,6 +10,7 @@ import {
 import UploadZone from "@/components/UploadZone";
 import SearchBox from "@/components/SearchBox";
 import AiChat from "@/components/AiChat";
+import UsageIndicator from "@/components/UsageIndicator";
 import DocumentList, { type Document } from "@/components/DocumentList";
 import DocumentViewer from "@/components/DocumentViewer";
 import ExtractionsPanel from "@/components/ExtractionsPanel";
@@ -283,11 +284,14 @@ export default function DashboardPage() {
               ? selectedDoc.filename
               : NAV_ITEMS.find((n) => n.key === view)?.label}
           </h1>
+          <span style={{ marginLeft: "auto" }}>
+            <UsageIndicator />
+          </span>
           {selectedDoc && (
             <button
               onClick={() => setSelectedDoc(null)}
               className="btn-ghost"
-              style={{ marginLeft: "auto", fontSize: "0.8rem" }}
+              style={{ marginLeft: "1rem", fontSize: "0.8rem" }}
             >
               <svg
                 width="14"
