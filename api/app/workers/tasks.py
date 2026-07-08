@@ -379,6 +379,23 @@ async def _report_api_costs_async() -> dict[str, object]:
     return {"total_cost_usd": total, "alert": alert, "services": services}
 
 
+@celery_app.task(queue="default", name="app.workers.tasks.reset_monthly_usage")  # type: ignore[untyped-decorator]
+def reset_monthly_usage() -> dict[str, object]:
+    """Monthly (1st, 00:05 UTC): zero every org's page-quota usage."""
+    return asyncio.run(_reset_monthly_usage_async())
+
+
+async def _reset_monthly_usage_async() -> dict[str, object]:
+    from app.core.db import SessionLocal
+    from app.repositories.organization import OrgRepository
+
+    _load_models()
+    async with SessionLocal.begin() as session:
+        count = await OrgRepository(session).reset_all_usage()
+    logger.info("monthly_quota_reset orgs_reset=%s", count)
+    return {"orgs_reset": count}
+
+
 @celery_app.task(queue="default", name="app.workers.tasks.monitor_queue_depths")  # type: ignore[untyped-decorator]
 def monitor_queue_depths() -> dict[str, object]:
     """Every 5 min: alert if any Celery queue (incl. DLQ) grows past threshold."""

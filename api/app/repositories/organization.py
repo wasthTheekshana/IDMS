@@ -45,6 +45,17 @@ class OrgRepository:
         await self._s.flush()
         return result.scalar_one_or_none() is not None
 
+    async def reset_all_usage(self) -> int:
+        """Zero every org's monthly page usage. Returns rows updated."""
+        result = await self._s.execute(
+            update(Organization)
+            .where(Organization.pages_used_this_month > 0)
+            .values(pages_used_this_month=0)
+            .returning(Organization.id)
+        )
+        await self._s.flush()
+        return len(result.fetchall())
+
     async def adjust_usage(self, org_id: uuid.UUID, delta_pages: int) -> None:
         """True-up usage (e.g. actual OCR pages vs estimate). No quota guard —
         records reality even if it lands over quota; clamps at zero."""

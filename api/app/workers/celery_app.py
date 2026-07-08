@@ -50,5 +50,9 @@ celery_app.conf.update(
             "task": "app.workers.tasks.monitor_queue_depths",
             "schedule": 300.0,
         },
+        "monthly-quota-reset": {
+            "task": "app.workers.tasks.reset_monthly_usage",
+            "schedule": crontab(day_of_month="1", hour=0, minute=5),
+        },
     },
 )

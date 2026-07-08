@@ -70,3 +70,18 @@ async def test_adjust_usage_clamps_at_zero() -> None:
     async with SessionLocal.begin() as session:
         await OrgRepository(session).adjust_usage(org_id, -100)
     assert await _get_usage(org_id) == 0
+
+
+async def test_reset_monthly_usage_zeroes_all_orgs() -> None:
+    import asyncio
+
+    from app.workers.tasks import reset_monthly_usage
+
+    org_a = await _make_org_with_usage(5)
+    org_b = await _make_org_with_usage(9)
+
+    result = await asyncio.to_thread(reset_monthly_usage.run)
+
+    assert result["orgs_reset"] >= 2
+    assert await _get_usage(org_a) == 0
+    assert await _get_usage(org_b) == 0
