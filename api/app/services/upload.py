@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.document import DocumentStatus
 from app.repositories.document import DocumentRepository
+from app.repositories.organization import OrgRepository
 from app.schemas.document import (
     DocumentResponse,
     UploadConfirmRequest,
@@ -34,6 +35,16 @@ async def init_upload(
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail="File exceeds 50 MB limit",
+        )
+
+    org = await OrgRepository(session).get_by_id(org_id)
+    if org and org.pages_used_this_month >= org.monthly_page_quota:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=(
+                "Monthly page quota exhausted. Quota resets on the 1st; "
+                "contact support to upgrade your plan."
+            ),
         )
 
     doc_id = uuid.uuid4()
