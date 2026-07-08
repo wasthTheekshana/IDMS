@@ -207,6 +207,11 @@ async def _run_ocr_async(
             extracted_text=result.text,
         )
 
+        # True-up: quota was charged with the size-based estimate; correct it
+        # to the real page count now that OCR knows it.
+        if result.page_count != estimated_pages:
+            await org_repo.adjust_usage(_org_id, result.page_count - estimated_pages)
+
         logger.info(
             "Document %s OCR done: %d pages, %d chunks",
             document_id,

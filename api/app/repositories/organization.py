@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.organization import Organization
@@ -44,3 +44,17 @@ class OrgRepository:
         )
         await self._s.flush()
         return result.scalar_one_or_none() is not None
+
+    async def adjust_usage(self, org_id: uuid.UUID, delta_pages: int) -> None:
+        """True-up usage (e.g. actual OCR pages vs estimate). No quota guard —
+        records reality even if it lands over quota; clamps at zero."""
+        await self._s.execute(
+            update(Organization)
+            .where(Organization.id == org_id)
+            .values(
+                pages_used_this_month=func.greatest(
+                    0, Organization.pages_used_this_month + delta_pages
+                )
+            )
+        )
+        await self._s.flush()

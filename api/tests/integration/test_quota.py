@@ -1,7 +1,11 @@
+import uuid
+
 from httpx import AsyncClient
 from sqlalchemy import text
 
 from app.core.db import SessionLocal
+from app.models.organization import Organization
+from app.repositories.organization import OrgRepository
 
 _UPLOAD_BODY = {
     "filename": "test.pdf",
@@ -33,3 +37,36 @@ async def test_upload_allowed_when_quota_available(
     client, _ = auth_client
     resp = await client.post("/api/v1/documents/upload-url", json=_UPLOAD_BODY)
     assert resp.status_code == 201
+
+
+async def _make_org_with_usage(used: int) -> uuid.UUID:
+    async with SessionLocal.begin() as session:
+        org = Organization(name="Trueup Org", slug=f"trueup-{uuid.uuid4().hex[:8]}")
+        session.add(org)
+        await session.flush()
+        await session.execute(
+            text("UPDATE organizations SET pages_used_this_month = :u WHERE id = :i"),
+            {"u": used, "i": str(org.id)},
+        )
+        return org.id
+
+
+async def _get_usage(org_id: uuid.UUID) -> int:
+    async with SessionLocal() as session:
+        org = await OrgRepository(session).get_by_id(org_id)
+        assert org is not None
+        return org.pages_used_this_month
+
+
+async def test_adjust_usage_applies_delta() -> None:
+    org_id = await _make_org_with_usage(10)
+    async with SessionLocal.begin() as session:
+        await OrgRepository(session).adjust_usage(org_id, -3)
+    assert await _get_usage(org_id) == 7
+
+
+async def test_adjust_usage_clamps_at_zero() -> None:
+    org_id = await _make_org_with_usage(10)
+    async with SessionLocal.begin() as session:
+        await OrgRepository(session).adjust_usage(org_id, -100)
+    assert await _get_usage(org_id) == 0
