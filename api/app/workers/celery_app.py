@@ -2,6 +2,11 @@ from celery import Celery  # type: ignore[import-untyped]
 from celery.schedules import crontab  # type: ignore[import-untyped]
 
 from app.core.config import settings
+from app.core.telemetry import configure_sentry
+
+# Worker/beat processes don't run the FastAPI lifespan; init Sentry here so
+# capture_message from monitoring tasks and task crashes actually report.
+configure_sentry()
 
 celery_app = Celery(
     "idms",
