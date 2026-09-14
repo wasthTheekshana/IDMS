@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,6 +21,15 @@ class Organization(Base):
     plan: Mapped[str] = mapped_column(String(50), server_default="free")
     monthly_page_quota: Mapped[int] = mapped_column(Integer, server_default="500")
     pages_used_this_month: Mapped[int] = mapped_column(Integer, server_default="0")
+    is_suspended: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    ai_qa_enabled: Mapped[bool] = mapped_column(Boolean, server_default="true")
+    ai_summarization_enabled: Mapped[bool] = mapped_column(
+        Boolean, server_default="true"
+    )
+    ai_search_answer_enabled: Mapped[bool] = mapped_column(
+        Boolean, server_default="true"
+    )
+    ai_extraction_enabled: Mapped[bool] = mapped_column(Boolean, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
