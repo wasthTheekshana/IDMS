@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str
 
+    # Platform admin — dedicated BYPASSRLS Postgres role for cross-org reads.
+    # Defaults are syntactically valid but non-functional placeholders; every
+    # real environment must override both in its .env file.
+    PLATFORM_ADMIN_DATABASE_URL: str = (
+        "postgresql+asyncpg://idms_platform_admin:changeme@localhost:5432/idms"
+    )
+    PLATFORM_ADMIN_DB_PASSWORD: str = "changeme-platform-admin-password"
+
     # Redis
     REDIS_URL: str = "redis://redis:6379/0"
 
@@ -61,7 +69,7 @@ class Settings(BaseSettings):
 
     # Groq
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
 
     # Embeddings
     EMBED_MODEL: str = "mistral-embed"

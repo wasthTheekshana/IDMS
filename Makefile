@@ -9,7 +9,7 @@ down:
 	docker compose -f infra/docker-compose.yml down
 
 # Tests TRUNCATE all tables — always run them against idms_test, never idms.
-TEST_ENV = TESTING=true DATABASE_URL=postgresql+asyncpg://idms_app:devpassword@127.0.0.1:5432/idms_test
+TEST_ENV = TESTING=true DATABASE_URL=postgresql+asyncpg://idms_app:devpassword@127.0.0.1:5432/idms_test PLATFORM_ADMIN_DATABASE_URL=postgresql+asyncpg://idms_platform_admin:devplatformadmin123@127.0.0.1:5432/idms_test
 
 test:
 	cd api && $(TEST_ENV) uv run pytest tests/ -v --tb=short
