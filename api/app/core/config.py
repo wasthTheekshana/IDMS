@@ -17,12 +17,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     # Platform admin — dedicated BYPASSRLS Postgres role for cross-org reads.
-    # Defaults are syntactically valid but non-functional placeholders; every
-    # real environment must override both in its .env file.
-    PLATFORM_ADMIN_DATABASE_URL: str = (
-        "postgresql+asyncpg://idms_platform_admin:changeme@localhost:5432/idms"
-    )
-    PLATFORM_ADMIN_DB_PASSWORD: str = "changeme-platform-admin-password"
+    PLATFORM_ADMIN_DATABASE_URL: str
+    PLATFORM_ADMIN_DB_PASSWORD: str
 
     # Redis
     REDIS_URL: str = "redis://redis:6379/0"

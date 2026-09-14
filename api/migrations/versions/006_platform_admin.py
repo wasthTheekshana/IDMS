@@ -82,7 +82,8 @@ def upgrade() -> None:
     # interpolating it into DDL here follows the same pattern already used
     # for org_id in core/deps.py's SET LOCAL statement.
     password = settings.PLATFORM_ADMIN_DB_PASSWORD
-    assert "'" not in password, "PLATFORM_ADMIN_DB_PASSWORD must not contain '"
+    if "'" in password:
+        raise ValueError("PLATFORM_ADMIN_DB_PASSWORD must not contain '")
     op.execute(f"""
         DO $$
         BEGIN
@@ -94,7 +95,7 @@ def upgrade() -> None:
             END IF;
         END
         $$;
-    """)  # nosec B608 - trusted server-side config value, not user input; quote injection ruled out by the assert above
+    """)  # nosec B608 - trusted server-side config value, not user input; quote injection ruled out by the check above
     op.execute("GRANT SELECT ON organizations TO idms_platform_admin")
     op.execute(
         "GRANT UPDATE (is_suspended, ai_qa_enabled, ai_summarization_enabled, "
