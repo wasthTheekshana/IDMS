@@ -29,3 +29,4 @@ Thumbs.db
 
 # Celery beat schedule files
 celerybeat-schedule*
+.superpowers/
