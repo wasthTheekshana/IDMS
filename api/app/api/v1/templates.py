@@ -17,7 +17,7 @@ from app.schemas.template import (
     TemplateResponse,
     TemplateUpdate,
 )
-from app.services.extraction import extract_fields
+from app.services.extraction import AIFeatureDisabledError, extract_fields
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 
@@ -115,6 +115,8 @@ async def run_extraction(
         extraction = await extract_fields(
             session, current_user.org_id, body.document_id, body.template_id
         )
+    except AIFeatureDisabledError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     return ExtractionResponse.model_validate(extraction)

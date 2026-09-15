@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.document import Document
+from app.models.organization import Organization
 from app.repositories.chunk import ChunkRepository
 from app.schemas.search import SearchHit, SearchResponse
 from app.services.embed import MistralEmbed, StubEmbed
@@ -80,20 +81,25 @@ async def hybrid_search(
 
     ai_summary = None
     if hits:
-        try:
-            from app.services.ai import _call_llm
+        org_result = await session.execute(
+            select(Organization).where(Organization.id == org_id)
+        )
+        org = org_result.scalar_one_or_none()
+        if org and org.ai_search_answer_enabled:
+            try:
+                from app.services.ai import _call_llm
 
-            context = "\n\n".join(
-                f"[p.{h.page}, {h.filename}]\n{h.content[:300]}" for h in hits[:5]
-            )
-            ai_summary = await _call_llm(
-                "Based on the search results below, write a brief answer to the "
-                f'user\'s query: "{query}"\n\n'
-                "Be concise (2-4 sentences). Cite page numbers.\n\n"
-                f"{context}"
-            )
-        except Exception:
-            logger.warning("AI summary generation failed")
+                context = "\n\n".join(
+                    f"[p.{h.page}, {h.filename}]\n{h.content[:300]}" for h in hits[:5]
+                )
+                ai_summary = await _call_llm(
+                    "Based on the search results below, write a brief answer to the "
+                    f'user\'s query: "{query}"\n\n'
+                    "Be concise (2-4 sentences). Cite page numbers.\n\n"
+                    f"{context}"
+                )
+            except Exception:
+                logger.warning("AI summary generation failed")
 
     return SearchResponse(
         query=query, hits=hits, total=len(hits), ai_summary=ai_summary

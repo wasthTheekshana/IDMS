@@ -7,8 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.document import Document
+from app.models.organization import Organization
 from app.repositories.chunk import ChunkRepository
 from app.services.embed import MistralEmbed, StubEmbed
+
+
+async def _get_org(session: AsyncSession, org_id: uuid.UUID) -> Organization | None:
+    result = await session.execute(
+        select(Organization).where(Organization.id == org_id)
+    )
+    return result.scalar_one_or_none()
 
 
 async def _get_relevant_chunks(
@@ -56,6 +64,10 @@ async def ask_document(
     question: str,
 ) -> dict[str, object]:
     """RAG Q&A: retrieve relevant chunks from one document, ask Gemini."""
+    org = await _get_org(session, org_id)
+    if org and not org.ai_qa_enabled:
+        return {"answer": "AI Q&A is disabled for your organization.", "sources": []}
+
     chunks = await _get_relevant_chunks(session, org_id, document_id, question)
     if not chunks:
         return {
@@ -83,6 +95,10 @@ async def ask_org(
     question: str,
 ) -> dict[str, object]:
     """RAG Q&A across all org documents."""
+    org = await _get_org(session, org_id)
+    if org and not org.ai_qa_enabled:
+        return {"answer": "AI Q&A is disabled for your organization.", "sources": []}
+
     chunks = await _get_relevant_chunks(session, org_id, None, question)
     if not chunks:
         return {"answer": "No relevant documents found.", "sources": []}
@@ -122,6 +138,10 @@ async def summarize_document(
     document_id: uuid.UUID,
 ) -> str:
     """Generate a summary from the document's extracted text."""
+    org = await _get_org(session, org_id)
+    if org and not org.ai_summarization_enabled:
+        return "AI summarization is disabled for your organization."
+
     result = await session.execute(
         select(Document).where(
             Document.id == document_id,

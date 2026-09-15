@@ -8,10 +8,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document
+from app.models.organization import Organization
 from app.models.template import Extraction, ExtractionTemplate
 from app.services.ai import _call_llm
 
 logger = logging.getLogger(__name__)
+
+
+class AIFeatureDisabledError(Exception):
+    """Raised when a tenant has this AI capability turned off."""
 
 
 async def extract_fields(
@@ -20,6 +25,13 @@ async def extract_fields(
     document_id: uuid.UUID,
     template_id: uuid.UUID,
 ) -> Extraction:
+    org_result = await session.execute(
+        select(Organization).where(Organization.id == org_id)
+    )
+    org = org_result.scalar_one_or_none()
+    if org and not org.ai_extraction_enabled:
+        raise AIFeatureDisabledError("AI extraction is disabled for your organization")
+
     doc_result = await session.execute(
         select(Document).where(Document.id == document_id, Document.org_id == org_id)
     )
