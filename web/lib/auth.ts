@@ -4,6 +4,7 @@ export interface TokenResponse {
   access_token: string;
   refresh_token: string;
   token_type: string;
+  account_type: "org_user" | "platform_admin";
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {

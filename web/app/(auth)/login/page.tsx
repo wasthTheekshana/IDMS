@@ -16,7 +16,8 @@ export default function LoginPage() {
     try {
       const tokens = await authApi.login(email, password);
       saveTokens(tokens);
-      window.location.href = "/dashboard";
+      window.location.href =
+        tokens.account_type === "platform_admin" ? "/admin" : "/dashboard";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
