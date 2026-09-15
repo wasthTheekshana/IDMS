@@ -103,14 +103,17 @@ async def platform_admin_client(
         session.add(
             PlatformAdmin(
                 id=uuid.uuid4(),
-                email="platform-admin@dok.test",
+                email="platform-admin@dok.example.com",
                 password_hash=hash_password("adminpassword123"),
             )
         )
 
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "platform-admin@dok.test", "password": "adminpassword123"},
+        json={
+            "email": "platform-admin@dok.example.com",
+            "password": "adminpassword123",
+        },
     )
     assert resp.status_code == 200, resp.text
     tokens = resp.json()
