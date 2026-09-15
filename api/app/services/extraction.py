@@ -29,7 +29,8 @@ async def extract_fields(
         select(Organization).where(Organization.id == org_id)
     )
     org = org_result.scalar_one_or_none()
-    if org and not org.ai_extraction_enabled:
+    # Fail closed: a missing org row is treated the same as the flag being off.
+    if org is None or not org.ai_extraction_enabled:
         raise AIFeatureDisabledError("AI extraction is disabled for your organization")
 
     doc_result = await session.execute(

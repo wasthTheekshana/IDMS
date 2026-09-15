@@ -65,7 +65,8 @@ async def ask_document(
 ) -> dict[str, object]:
     """RAG Q&A: retrieve relevant chunks from one document, ask Gemini."""
     org = await _get_org(session, org_id)
-    if org and not org.ai_qa_enabled:
+    # Fail closed: a missing org row is treated the same as the flag being off.
+    if org is None or not org.ai_qa_enabled:
         return {"answer": "AI Q&A is disabled for your organization.", "sources": []}
 
     chunks = await _get_relevant_chunks(session, org_id, document_id, question)
@@ -96,7 +97,8 @@ async def ask_org(
 ) -> dict[str, object]:
     """RAG Q&A across all org documents."""
     org = await _get_org(session, org_id)
-    if org and not org.ai_qa_enabled:
+    # Fail closed: a missing org row is treated the same as the flag being off.
+    if org is None or not org.ai_qa_enabled:
         return {"answer": "AI Q&A is disabled for your organization.", "sources": []}
 
     chunks = await _get_relevant_chunks(session, org_id, None, question)
@@ -139,7 +141,8 @@ async def summarize_document(
 ) -> str:
     """Generate a summary from the document's extracted text."""
     org = await _get_org(session, org_id)
-    if org and not org.ai_summarization_enabled:
+    # Fail closed: a missing org row is treated the same as the flag being off.
+    if org is None or not org.ai_summarization_enabled:
         return "AI summarization is disabled for your organization."
 
     result = await session.execute(
@@ -167,7 +170,7 @@ async def _call_llm(prompt: str, max_tokens: int | None = None) -> str:
     if settings.GROQ_API_KEY:
         return await _call_groq(prompt, max_tokens)
     if settings.GOOGLE_AI_API_KEY:
-        return await _call_gemini(prompt)
+        return await _call_gemini(prompt, max_tokens)
     return "[AI disabled: no GROQ_API_KEY or GOOGLE_AI_API_KEY configured]"
 
 
@@ -186,7 +189,7 @@ async def _call_groq(prompt: str, max_tokens: int | None = None) -> str:
         return f"[AI error: {exc}]"
 
 
-async def _call_gemini(prompt: str) -> str:
+async def _call_gemini(prompt: str, max_tokens: int | None = None) -> str:
     try:
         from google import genai
 
@@ -194,6 +197,8 @@ async def _call_gemini(prompt: str) -> str:
         response = await client.aio.models.generate_content(
             model=settings.GEMINI_MODEL,
             contents=prompt,
+            # google-genai accepts a plain dict here (GenerateContentConfigDict).
+            config={"max_output_tokens": max_tokens or settings.AI_MAX_RESPONSE_TOKENS},
         )
         return response.text or "[No response from AI]"
     except Exception as exc:

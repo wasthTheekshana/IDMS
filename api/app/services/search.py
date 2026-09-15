@@ -85,7 +85,8 @@ async def hybrid_search(
             select(Organization).where(Organization.id == org_id)
         )
         org = org_result.scalar_one_or_none()
-        if org and org.ai_search_answer_enabled:
+        # Fail closed: a missing org row is treated the same as the flag being off.
+        if org is not None and org.ai_search_answer_enabled:
             try:
                 from app.services.ai import _call_llm
 
