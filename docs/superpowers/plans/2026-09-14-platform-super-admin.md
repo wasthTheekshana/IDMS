@@ -594,11 +594,11 @@ async def test_normal_org_session_still_isolated(
 async def test_platform_admin_login_returns_admin_account_type(
     client: AsyncClient,
 ) -> None:
-    await _create_platform_admin("admin@dok.test", "adminpassword123")
+    await _create_platform_admin("admin@dok.example.com", "adminpassword123")
 
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "admin@dok.test", "password": "adminpassword123"},
+        json={"email": "admin@dok.example.com", "password": "adminpassword123"},
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -609,10 +609,10 @@ async def test_platform_admin_login_returns_admin_account_type(
 async def test_platform_admin_token_rejected_by_org_endpoint(
     client: AsyncClient,
 ) -> None:
-    await _create_platform_admin("admin2@dok.test", "adminpassword123")
+    await _create_platform_admin("admin2@dok.example.com", "adminpassword123")
     login = await client.post(
         "/api/v1/auth/login",
-        json={"email": "admin2@dok.test", "password": "adminpassword123"},
+        json={"email": "admin2@dok.example.com", "password": "adminpassword123"},
     )
     admin_token = login.json()["access_token"]
 
@@ -1133,14 +1133,14 @@ async def platform_admin_client(
         session.add(
             PlatformAdmin(
                 id=uuid.uuid4(),
-                email="platform-admin@dok.test",
+                email="platform-admin@dok.example.com",
                 password_hash=hash_password("adminpassword123"),
             )
         )
 
     resp = await client.post(
         "/api/v1/auth/login",
-        json={"email": "platform-admin@dok.test", "password": "adminpassword123"},
+        json={"email": "platform-admin@dok.example.com", "password": "adminpassword123"},
     )
     assert resp.status_code == 200, resp.text
     tokens = resp.json()
@@ -1337,7 +1337,7 @@ async def test_platform_admin_me_returns_profile(
     admin_client, _ = platform_admin_client
     resp = await admin_client.get("/api/v1/platform-admin/me")
     assert resp.status_code == 200, resp.text
-    assert resp.json()["email"] == "platform-admin@dok.test"
+    assert resp.json()["email"] == "platform-admin@dok.example.com"
 ```
 
 - [ ] **Step 3: Run test to verify it fails**
