@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   getAccessToken,
   getRefreshToken,
@@ -199,11 +199,8 @@ export default function AdminPage() {
           </thead>
           <tbody>
             {orgs.map((org) => (
-              <>
-                <tr
-                  key={org.id}
-                  style={{ borderBottom: "1px solid var(--gray-100)" }}
-                >
+              <Fragment key={org.id}>
+                <tr style={{ borderBottom: "1px solid var(--gray-100)" }}>
                   <td style={{ padding: "0.6rem", fontWeight: 500 }}>
                     {org.name}
                   </td>
@@ -255,7 +252,7 @@ export default function AdminPage() {
                   </td>
                 </tr>
                 {expandedOrgId === org.id && (
-                  <tr key={`${org.id}-docs`}>
+                  <tr>
                     <td
                       colSpan={9 + TOGGLE_FIELDS.length}
                       style={{
@@ -332,7 +329,7 @@ export default function AdminPage() {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>
