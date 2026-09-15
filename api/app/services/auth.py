@@ -9,7 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.security import (
+    admin_refresh_token_redis_key,
     create_access_token,
+    create_platform_admin_token,
     hash_password,
     make_refresh_token_id,
     refresh_token_redis_key,
@@ -17,6 +19,7 @@ from app.core.security import (
 )
 from app.models.user import UserRole
 from app.repositories.organization import OrgRepository
+from app.repositories.platform_admin import PlatformAdminRepository
 from app.repositories.user import UserRepository
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 
@@ -34,6 +37,17 @@ async def _store_refresh_token(
 ) -> None:
     key = refresh_token_redis_key(token_id)
     value = json.dumps({"user_id": user_id, "org_id": org_id, "role": role})
+    expire = int(timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS).total_seconds())
+    await redis_client.set(key, value, ex=expire)
+
+
+async def _store_admin_refresh_token(
+    redis_client: aioredis.Redis,  # type: ignore[type-arg]
+    token_id: str,
+    admin_id: str,
+) -> None:
+    key = admin_refresh_token_redis_key(token_id)
+    value = json.dumps({"admin_id": admin_id})
     expire = int(timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS).total_seconds())
     await redis_client.set(key, value, ex=expire)
 
@@ -72,6 +86,30 @@ async def register(body: RegisterRequest, session: AsyncSession) -> TokenRespons
 
 
 async def login(body: LoginRequest, session: AsyncSession) -> TokenResponse:
+    admin_repo = PlatformAdminRepository(session)
+    admin = await admin_repo.get_by_email(body.email)
+    if admin:
+        if not admin.is_active or not verify_password(
+            body.password, admin.password_hash
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
+            )
+        await admin_repo.update_last_login(admin)
+
+        access_token = create_platform_admin_token(str(admin.id))
+        refresh_id = make_refresh_token_id()
+        redis_client = aioredis.from_url(settings.REDIS_URL)
+        try:
+            await _store_admin_refresh_token(redis_client, refresh_id, str(admin.id))
+        finally:
+            await redis_client.aclose()
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_id,
+            account_type="platform_admin",
+        )
+
     user_repo = UserRepository(session)
     user = await user_repo.get_by_email(body.email)
 
@@ -104,6 +142,13 @@ async def login(body: LoginRequest, session: AsyncSession) -> TokenResponse:
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )
 
+    org = await OrgRepository(session).get_by_id(user.org_id)
+    if org and org.is_suspended:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This organization has been suspended. Contact support.",
+        )
+
     await user_repo.reset_failed_login(user)
 
     access_token = create_access_token(str(user.id), str(user.org_id), user.role.value)
@@ -127,6 +172,22 @@ async def login(body: LoginRequest, session: AsyncSession) -> TokenResponse:
 async def refresh_tokens(refresh_token_id: str) -> TokenResponse:
     redis_client = aioredis.from_url(settings.REDIS_URL)
     try:
+        admin_key = admin_refresh_token_redis_key(refresh_token_id)
+        raw_admin = await redis_client.get(admin_key)
+        if raw_admin:
+            await redis_client.delete(admin_key)
+            data = json.loads(raw_admin)
+            new_access = create_platform_admin_token(data["admin_id"])
+            new_refresh_id = make_refresh_token_id()
+            await _store_admin_refresh_token(
+                redis_client, new_refresh_id, data["admin_id"]
+            )
+            return TokenResponse(
+                access_token=new_access,
+                refresh_token=new_refresh_id,
+                account_type="platform_admin",
+            )
+
         key = refresh_token_redis_key(refresh_token_id)
         raw = await redis_client.get(key)
         if not raw:
@@ -155,5 +216,6 @@ async def logout(refresh_token_id: str) -> None:
     redis_client = aioredis.from_url(settings.REDIS_URL)
     try:
         await redis_client.delete(refresh_token_redis_key(refresh_token_id))
+        await redis_client.delete(admin_refresh_token_redis_key(refresh_token_id))
     finally:
         await redis_client.aclose()

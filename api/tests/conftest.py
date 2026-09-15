@@ -86,3 +86,33 @@ async def second_auth_client() -> AsyncGenerator[tuple[AsyncClient, dict], None]
         tokens = resp.json()
         client_b.headers["Authorization"] = f"Bearer {tokens['access_token']}"
         yield client_b, tokens
+
+
+@pytest.fixture
+async def platform_admin_client(
+    client: AsyncClient,
+) -> tuple[AsyncClient, dict]:  # type: ignore[type-arg]
+    """Returns (client, tokens) for a freshly created platform admin."""
+    import uuid
+
+    from app.core.db import SessionLocal
+    from app.core.security import hash_password
+    from app.models.platform_admin import PlatformAdmin
+
+    async with SessionLocal.begin() as session:
+        session.add(
+            PlatformAdmin(
+                id=uuid.uuid4(),
+                email="platform-admin@dok.test",
+                password_hash=hash_password("adminpassword123"),
+            )
+        )
+
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "platform-admin@dok.test", "password": "adminpassword123"},
+    )
+    assert resp.status_code == 200, resp.text
+    tokens = resp.json()
+    client.headers["Authorization"] = f"Bearer {tokens['access_token']}"
+    return client, tokens
