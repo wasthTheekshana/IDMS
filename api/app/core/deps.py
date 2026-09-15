@@ -18,9 +18,10 @@ from jose import JWTError  # type: ignore[import-untyped]
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import AdminSessionLocal, SessionLocal
+from app.core.db import SessionLocal, admin_session_factory
 from app.core.security import decode_access_token
 from app.models.user import UserRole
+from app.repositories.platform_admin import PlatformAdminRepository
 
 _bearer = HTTPBearer()
 
@@ -54,7 +55,7 @@ async def get_admin_db() -> AsyncGenerator[AsyncSession, None]:
     """Cross-org session via the BYPASSRLS idms_platform_admin role.
     No SET LOCAL org context — the whole point is reading across every org.
     Only platform-admin routes may depend on this."""
-    async with AdminSessionLocal.begin() as session:
+    async with admin_session_factory().begin() as session:
         yield session
 
 
@@ -122,11 +123,34 @@ class CurrentPlatformAdmin:
         self.admin_id = uuid.UUID(admin_id)
 
 
-async def get_current_platform_admin(payload: TokenPayload) -> CurrentPlatformAdmin:
+async def get_current_platform_admin(
+    payload: TokenPayload, session: AdminSession
+) -> CurrentPlatformAdmin:
+    """Validates the token AND the live platform_admins row.
+
+    Checking the row on every request (not just at login) is what makes
+    `is_active = false` a working kill switch for an already-issued token.
+    """
     if payload.get("account_type") != "platform_admin":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not a platform admin token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        admin_id = uuid.UUID(payload["sub"])
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or inactive admin",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    admin = await PlatformAdminRepository(session).get_by_id(admin_id)
+    if not admin or not admin.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or inactive admin",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return CurrentPlatformAdmin(admin_id=payload["sub"])

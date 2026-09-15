@@ -1,5 +1,6 @@
 import json
 import re
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import redis.asyncio as aioredis
@@ -7,7 +8,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.db import SessionLocal
+from app.core.db import SessionLocal, admin_session_factory
 from app.core.security import (
     admin_refresh_token_redis_key,
     create_access_token,
@@ -142,8 +143,15 @@ async def login(body: LoginRequest, session: AsyncSession) -> TokenResponse:
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )
 
-    org = await OrgRepository(session).get_by_id(user.org_id)
-    if org and org.is_suspended:
+    # The suspension check must run on the BYPASSRLS admin session. `session`
+    # here comes from get_public_db, which never issues
+    # `SET LOCAL app.current_org_id`, so under FORCE ROW LEVEL SECURITY the
+    # organizations row is invisible to it and the check would silently fail
+    # open on any deployment whose app role is not a superuser.
+    async with admin_session_factory()() as admin_session:
+        org = await OrgRepository(admin_session).get_by_id(user.org_id)
+        is_suspended = bool(org and org.is_suspended)
+    if is_suspended:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This organization has been suspended. Contact support.",
@@ -177,6 +185,17 @@ async def refresh_tokens(refresh_token_id: str) -> TokenResponse:
         if raw_admin:
             await redis_client.delete(admin_key)
             data = json.loads(raw_admin)
+            # Re-check the live row: a deactivated admin must not be able to
+            # keep minting fresh token pairs off Redis state alone.
+            async with admin_session_factory()() as admin_session:
+                admin = await PlatformAdminRepository(admin_session).get_by_id(
+                    uuid.UUID(data["admin_id"])
+                )
+                if not admin or not admin.is_active:
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Invalid or inactive admin",
+                    )
             new_access = create_platform_admin_token(data["admin_id"])
             new_refresh_id = make_refresh_token_id()
             await _store_admin_refresh_token(

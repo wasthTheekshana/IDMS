@@ -17,8 +17,11 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     # Platform admin — dedicated BYPASSRLS Postgres role for cross-org reads.
-    PLATFORM_ADMIN_DATABASE_URL: str
-    PLATFORM_ADMIN_DB_PASSWORD: str
+    # Empty by default so processes that never open an admin session (worker,
+    # beat, migrate) can boot without it; app.core.db raises a clear error if
+    # an admin session is actually requested while it is unset.
+    PLATFORM_ADMIN_DATABASE_URL: str = ""
+    PLATFORM_ADMIN_DB_PASSWORD: str = ""
 
     # Redis
     REDIS_URL: str = "redis://redis:6379/0"

@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -30,18 +31,31 @@ SessionLocal = async_sessionmaker(
 )
 
 
-admin_engine = create_async_engine(
-    settings.PLATFORM_ADMIN_DATABASE_URL,
-    echo=settings.DEBUG,
-    pool_pre_ping=True,
-    **_pool_kwargs,  # type: ignore[arg-type]
-)
+@lru_cache
+def admin_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Lazily built session factory for the BYPASSRLS idms_platform_admin role.
 
-AdminSessionLocal = async_sessionmaker(
-    admin_engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+    Built on first use rather than at import time so that processes which never
+    open an admin session (worker, beat, migrate) do not need
+    PLATFORM_ADMIN_DATABASE_URL to be configured just to import this module.
+    """
+    if not settings.PLATFORM_ADMIN_DATABASE_URL:
+        raise RuntimeError(
+            "PLATFORM_ADMIN_DATABASE_URL is not configured — it is required by "
+            "any process that opens a platform-admin (BYPASSRLS) database "
+            "session. See .env.example."
+        )
+    admin_engine = create_async_engine(
+        settings.PLATFORM_ADMIN_DATABASE_URL,
+        echo=settings.DEBUG,
+        pool_pre_ping=True,
+        **_pool_kwargs,  # type: ignore[arg-type]
+    )
+    return async_sessionmaker(
+        admin_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
 
 
 class Base(DeclarativeBase):
