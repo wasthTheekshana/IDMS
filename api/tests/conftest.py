@@ -89,10 +89,13 @@ async def second_auth_client() -> AsyncGenerator[tuple[AsyncClient, dict], None]
 
 
 @pytest.fixture
-async def platform_admin_client(
-    client: AsyncClient,
-) -> tuple[AsyncClient, dict]:  # type: ignore[type-arg]
-    """Returns (client, tokens) for a freshly created platform admin."""
+async def platform_admin_client() -> AsyncGenerator[tuple[AsyncClient, dict], None]:  # type: ignore[type-arg]
+    """Returns (client, tokens) for a freshly created platform admin.
+
+    Uses its own AsyncClient (not the shared `client` fixture) so its
+    Authorization header can't be clobbered by auth_client/second_auth_client
+    setting theirs on a shared client instance when a test depends on both.
+    """
     import uuid
 
     from app.core.db import SessionLocal
@@ -108,14 +111,17 @@ async def platform_admin_client(
             )
         )
 
-    resp = await client.post(
-        "/api/v1/auth/login",
-        json={
-            "email": "platform-admin@dok.example.com",
-            "password": "adminpassword123",
-        },
-    )
-    assert resp.status_code == 200, resp.text
-    tokens = resp.json()
-    client.headers["Authorization"] = f"Bearer {tokens['access_token']}"
-    return client, tokens
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as admin_client:
+        resp = await admin_client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": "platform-admin@dok.example.com",
+                "password": "adminpassword123",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        tokens = resp.json()
+        admin_client.headers["Authorization"] = f"Bearer {tokens['access_token']}"
+        yield admin_client, tokens

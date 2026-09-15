@@ -10,6 +10,7 @@ from app.api.v1.ai import router as ai_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.documents import router as documents_router
 from app.api.v1.health import router as health_router
+from app.api.v1.platform_admin import router as platform_admin_router
 from app.api.v1.search import router as search_router
 from app.api.v1.templates import router as templates_router
 from app.api.v1.users import router as users_router
@@ -56,6 +57,7 @@ def create_app() -> FastAPI:
     app.include_router(search_router, prefix="/api/v1")
     app.include_router(ai_router, prefix="/api/v1")
     app.include_router(templates_router, prefix="/api/v1")
+    app.include_router(platform_admin_router, prefix="/api/v1")
 
     return app
 
