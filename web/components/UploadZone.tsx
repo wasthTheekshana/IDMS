@@ -19,7 +19,8 @@ type FileStatus =
   | "uploading"
   | "processing"
   | "done"
-  | "error";
+  | "error"
+  | "timeout";
 
 interface UploadItem {
   id: string;
@@ -143,6 +144,15 @@ export default function UploadZone({
             continue;
           }
         }
+
+        // Still processing after 5 minutes of polling — this doesn't mean
+        // it failed, the pipeline (OCR retries, slow provider calls) can
+        // legitimately take longer. Stop polling but say so, rather than
+        // leaving the item frozen at "processing" with no explanation.
+        updateItem(item.id, {
+          status: "timeout",
+          error: "Still processing — check the document list shortly",
+        });
       } catch (err) {
         updateItem(item.id, {
           status: "error",
@@ -180,7 +190,12 @@ export default function UploadZone({
 
   function clearCompleted() {
     setItems((prev) =>
-      prev.filter((it) => it.status !== "done" && it.status !== "error"),
+      prev.filter(
+        (it) =>
+          it.status !== "done" &&
+          it.status !== "error" &&
+          it.status !== "timeout",
+      ),
     );
   }
 
@@ -195,6 +210,7 @@ export default function UploadZone({
     processing: { color: "var(--amber-600)", symbol: "⟳" },
     done: { color: "var(--green-600)", symbol: "✓" },
     error: { color: "var(--red-600)", symbol: "✕" },
+    timeout: { color: "var(--amber-600)", symbol: "⏱" },
   };
 
   return (
@@ -297,7 +313,10 @@ export default function UploadZone({
                   Cancel pending
                 </button>
               )}
-              {(doneCount > 0 || items.some((it) => it.status === "error")) && (
+              {(doneCount > 0 ||
+                items.some(
+                  (it) => it.status === "error" || it.status === "timeout",
+                )) && (
                 <button
                   onClick={clearCompleted}
                   className="btn-ghost"
@@ -366,7 +385,9 @@ export default function UploadZone({
                           ? "var(--red-500)"
                           : item.status === "done"
                             ? "var(--green-500)"
-                            : "var(--brand-500)",
+                            : item.status === "timeout"
+                              ? "var(--amber-500)"
+                              : "var(--brand-500)",
                       transition: "width 0.3s",
                     }}
                   />
@@ -375,7 +396,10 @@ export default function UploadZone({
                   <span
                     style={{
                       fontSize: "0.75rem",
-                      color: "var(--red-600)",
+                      color:
+                        item.status === "timeout"
+                          ? "var(--amber-600)"
+                          : "var(--red-600)",
                       maxWidth: 150,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
