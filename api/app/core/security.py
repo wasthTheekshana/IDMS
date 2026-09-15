@@ -32,6 +32,19 @@ def create_access_token(user_id: str, org_id: str, role: str) -> str:
     )  # type: ignore[no-any-return]
 
 
+def create_platform_admin_token(admin_id: str) -> str:
+    expire = datetime.now(UTC) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload: dict[str, Any] = {
+        "sub": admin_id,
+        "account_type": "platform_admin",
+        "exp": expire,
+        "type": "access",
+    }
+    return jwt.encode(
+        payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+    )  # type: ignore[no-any-return]
+
+
 def decode_access_token(token: str) -> dict[str, Any]:
     return jwt.decode(  # type: ignore[no-any-return]
         token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
@@ -44,3 +57,7 @@ def make_refresh_token_id() -> str:
 
 def refresh_token_redis_key(token_id: str) -> str:
     return f"refresh:{token_id}"
+
+
+def admin_refresh_token_redis_key(token_id: str) -> str:
+    return f"admin_refresh:{token_id}"
