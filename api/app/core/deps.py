@@ -18,7 +18,7 @@ from jose import JWTError  # type: ignore[import-untyped]
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import SessionLocal
+from app.core.db import AdminSessionLocal, SessionLocal
 from app.core.security import decode_access_token
 from app.models.user import UserRole
 
@@ -50,8 +50,24 @@ async def _get_token_payload(
 TokenPayload = Annotated[dict[str, str], Depends(_get_token_payload)]
 
 
+async def get_admin_db() -> AsyncGenerator[AsyncSession, None]:
+    """Cross-org session via the BYPASSRLS idms_platform_admin role.
+    No SET LOCAL org context — the whole point is reading across every org.
+    Only platform-admin routes may depend on this."""
+    async with AdminSessionLocal.begin() as session:
+        yield session
+
+
+AdminSession = Annotated[AsyncSession, Depends(get_admin_db)]
+
+
 async def get_db(payload: TokenPayload) -> AsyncGenerator[AsyncSession, None]:
     """Authenticated DB session. Sets org context via SET LOCAL so RLS activates."""
+    if payload.get("account_type") == "platform_admin":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Platform admin tokens cannot access organization-scoped endpoints",
+        )
     org_id = str(
         _uuid_module.UUID(payload["org_id"])
     )  # validated — safe to interpolate
@@ -59,6 +75,15 @@ async def get_db(payload: TokenPayload) -> AsyncGenerator[AsyncSession, None]:
         # SET LOCAL does not support parameterized queries in PostgreSQL.
         # org_id is validated as a UUID above so interpolation is safe.
         await session.execute(text(f"SET LOCAL app.current_org_id = '{org_id}'"))
+        suspended = await session.execute(
+            text("SELECT is_suspended FROM organizations WHERE id = :oid"),
+            {"oid": org_id},
+        )
+        if suspended.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This organization has been suspended. Contact support.",
+            )
         yield session
 
 
@@ -75,6 +100,11 @@ class CurrentUser:
 
 
 async def get_current_user(payload: TokenPayload) -> CurrentUser:
+    if payload.get("account_type") == "platform_admin":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Platform admin tokens cannot access organization-scoped endpoints",
+        )
     return CurrentUser(
         user_id=payload["sub"],
         org_id=payload["org_id"],
@@ -83,6 +113,28 @@ async def get_current_user(payload: TokenPayload) -> CurrentUser:
 
 
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
+
+
+class CurrentPlatformAdmin:
+    __slots__ = ("admin_id",)
+
+    def __init__(self, admin_id: str) -> None:
+        self.admin_id = uuid.UUID(admin_id)
+
+
+async def get_current_platform_admin(payload: TokenPayload) -> CurrentPlatformAdmin:
+    if payload.get("account_type") != "platform_admin":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not a platform admin token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return CurrentPlatformAdmin(admin_id=payload["sub"])
+
+
+CurrentPlatformAdminDep = Annotated[
+    CurrentPlatformAdmin, Depends(get_current_platform_admin)
+]
 
 
 def require_role(*roles: UserRole):  # type: ignore[no-untyped-def]

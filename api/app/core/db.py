@@ -30,6 +30,20 @@ SessionLocal = async_sessionmaker(
 )
 
 
+admin_engine = create_async_engine(
+    settings.PLATFORM_ADMIN_DATABASE_URL,
+    echo=settings.DEBUG,
+    pool_pre_ping=True,
+    **_pool_kwargs,  # type: ignore[arg-type]
+)
+
+AdminSessionLocal = async_sessionmaker(
+    admin_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+
 class Base(DeclarativeBase):
     pass
 
