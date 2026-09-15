@@ -14,7 +14,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.core.db import AdminSessionLocal
+from app.core.db import admin_session_factory
 from app.core.security import hash_password
 from app.models.organization import Organization
 from app.models.platform_admin import PlatformAdmin
@@ -31,13 +31,28 @@ async def _create_platform_admin(email: str, password: str) -> None:
         )
 
 
+async def _deactivate_platform_admin(email: str) -> None:
+    """Flip is_active off.
+
+    Uses SessionLocal, not the admin session: idms_platform_admin is granted
+    SELECT only (migration 007) — it is deliberately a read-only role.
+    """
+    from app.core.db import SessionLocal
+
+    async with SessionLocal.begin() as session:
+        result = await session.execute(
+            select(PlatformAdmin).where(PlatformAdmin.email == email)
+        )
+        result.scalar_one().is_active = False
+
+
 @pytest.mark.asyncio
 async def test_admin_session_sees_rows_across_multiple_orgs(
     auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
     second_auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
 ) -> None:
     """Proves the BYPASSRLS bypass actually works — the whole point of the role."""
-    async with AdminSessionLocal() as session:
+    async with admin_session_factory()() as session:
         result = await session.execute(select(Organization))
         orgs = result.scalars().all()
         assert len(orgs) >= 2, (
@@ -51,7 +66,15 @@ async def test_normal_org_session_still_isolated(
     auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
     second_auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
 ) -> None:
-    """Proves the bypass is contained to the admin role only."""
+    """Precondition sanity-check, NOT a security proof.
+
+    This only verifies that the `auth_client` and `second_auth_client` fixtures
+    genuinely produced two distinct organizations — which is what makes the
+    BYPASSRLS assertion in test_admin_session_sees_rows_across_multiple_orgs
+    meaningful. It guards against a fixture regression (e.g. both fixtures
+    collapsing onto one org, which would make that test pass vacuously). It
+    asserts nothing about RLS enforcement itself.
+    """
     client_a, _ = auth_client
     client_b, _ = second_auth_client
 
@@ -59,9 +82,19 @@ async def test_normal_org_session_still_isolated(
     orgs_b = await client_b.get("/api/v1/users/me")
     assert orgs_a.json()["org_id"] != orgs_b.json()["org_id"]
 
-    # Org A's own document listing must never contain anything from org B —
-    # covered already by test_tenant_isolation.py; this test only re-confirms
-    # the two fixtures produced genuinely different orgs for the test above.
+    # Cross-org data isolation over the HTTP API is covered by
+    # tests/security/test_tenant_isolation.py.
+    #
+    # KNOWN GAP: a genuinely adversarial test of the BYPASSRLS boundary —
+    # opening a raw SessionLocal session, SET LOCAL app.current_org_id to org
+    # A, and asserting org B's row is invisible — cannot be written honestly
+    # here. It requires the application's database role to NOT be a superuser,
+    # and the local/CI Postgres role is one (see infra/docker-compose.yml:
+    # POSTGRES_USER: idms_app, which is created as the cluster superuser).
+    # Superusers bypass RLS unconditionally, so such a test would report a
+    # false PASS regardless of whether the real boundary is sound. Fixing this
+    # means provisioning a non-superuser application role in
+    # docker-compose/CI first; that is deliberately out of scope here.
 
 
 @pytest.mark.asyncio
@@ -117,7 +150,7 @@ async def test_suspended_org_blocks_existing_token_immediately(
     assert me.status_code == 200
     org_id = me.json()["org_id"]
 
-    async with AdminSessionLocal.begin() as session:
+    async with admin_session_factory().begin() as session:
         result = await session.execute(
             select(Organization).where(Organization.id == uuid.UUID(org_id))
         )
@@ -126,3 +159,35 @@ async def test_suspended_org_blocks_existing_token_immediately(
 
     resp = await client.get("/api/v1/users/me")
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_deactivated_platform_admin_blocked_on_next_request(
+    platform_admin_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    """is_active = false must be a working kill switch for an already-issued
+    token — not merely a login-time check."""
+    admin_client, _ = platform_admin_client
+
+    assert (await admin_client.get("/api/v1/platform-admin/me")).status_code == 200
+
+    await _deactivate_platform_admin("platform-admin@dok.example.com")
+
+    resp = await admin_client.get("/api/v1/platform-admin/me")
+    assert resp.status_code == 401, resp.text
+
+
+@pytest.mark.asyncio
+async def test_deactivated_platform_admin_cannot_refresh(
+    platform_admin_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    """A deactivated admin must not be able to keep minting token pairs off
+    the Redis refresh-token state alone."""
+    admin_client, tokens = platform_admin_client
+
+    await _deactivate_platform_admin("platform-admin@dok.example.com")
+
+    resp = await admin_client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert resp.status_code == 401, resp.text
