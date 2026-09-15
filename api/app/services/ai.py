@@ -142,16 +142,16 @@ async def summarize_document(
     return await _call_llm(prompt)
 
 
-async def _call_llm(prompt: str) -> str:
+async def _call_llm(prompt: str, max_tokens: int | None = None) -> str:
     """Call LLM: Groq (primary) → Gemini (fallback)."""
     if settings.GROQ_API_KEY:
-        return await _call_groq(prompt)
+        return await _call_groq(prompt, max_tokens)
     if settings.GOOGLE_AI_API_KEY:
-        return await _call_llm(prompt)
+        return await _call_gemini(prompt)
     return "[AI disabled: no GROQ_API_KEY or GOOGLE_AI_API_KEY configured]"
 
 
-async def _call_groq(prompt: str) -> str:
+async def _call_groq(prompt: str, max_tokens: int | None = None) -> str:
     try:
         from groq import AsyncGroq
 
@@ -159,7 +159,7 @@ async def _call_groq(prompt: str) -> str:
         response = await client.chat.completions.create(
             model=settings.GROQ_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=settings.AI_MAX_RESPONSE_TOKENS,
+            max_tokens=max_tokens or settings.AI_MAX_RESPONSE_TOKENS,
         )
         return response.choices[0].message.content or "[No response from AI]"
     except Exception as exc:

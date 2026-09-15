@@ -42,7 +42,7 @@ async def extract_fields(
         for f in tmpl.fields
     )
 
-    text = doc.extracted_text[:12_000]
+    text = doc.extracted_text[:60_000]
 
     prompt = (
         "Extract the following fields from the document text below. "
@@ -54,7 +54,10 @@ async def extract_fields(
         "## JSON output:"
     )
 
-    raw = await _call_llm(prompt)
+    # Scale the output budget with field count so the JSON response for
+    # templates with many fields doesn't get cut off mid-generation.
+    max_tokens = min(8192, 512 + 150 * len(tmpl.fields))
+    raw = await _call_llm(prompt, max_tokens=max_tokens)
 
     data = _parse_json(raw)
 
