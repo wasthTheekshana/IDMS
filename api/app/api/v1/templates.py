@@ -143,6 +143,7 @@ async def list_extractions(
     for ext, filename, tmpl_name in result.all():
         rows.append(
             ExtractionRow(
+                id=ext.id,
                 document_id=ext.document_id,
                 filename=filename,
                 template_name=tmpl_name,
@@ -151,6 +152,24 @@ async def list_extractions(
             )
         )
     return rows
+
+
+@router.delete("/extractions/{extraction_id}", status_code=204)
+async def delete_extraction(
+    extraction_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    session: AuthSession,
+) -> None:
+    result = await session.execute(
+        select(Extraction).where(
+            Extraction.id == extraction_id,
+            Extraction.org_id == current_user.org_id,
+        )
+    )
+    extraction = result.scalar_one_or_none()
+    if not extraction:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    await session.delete(extraction)
 
 
 @router.get("/extractions/export/csv")

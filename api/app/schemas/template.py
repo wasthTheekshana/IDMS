@@ -51,6 +51,7 @@ class ExtractionResponse(BaseModel):
 
 
 class ExtractionRow(BaseModel):
+    id: uuid.UUID
     document_id: uuid.UUID
     filename: str
     template_name: str

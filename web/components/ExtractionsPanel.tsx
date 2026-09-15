@@ -22,6 +22,7 @@ interface DocOption {
   status: string;
 }
 interface ExtractionRow {
+  id: string;
   document_id: string;
   filename: string;
   template_name: string;
@@ -98,6 +99,20 @@ export default function ExtractionsPanel() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (selectedTemplate === id) setSelectedTemplate("");
+      await fetchAll();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function handleDeleteExtraction(id: string) {
+    if (!confirm("Delete this extracted record? This cannot be undone."))
+      return;
+    try {
+      await fetch(`${API}/api/v1/templates/extractions/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       await fetchAll();
     } catch {
       /* ignore */
@@ -580,12 +595,25 @@ export default function ExtractionsPanel() {
                       width: 60,
                     }}
                   ></th>
+                  <th
+                    style={{
+                      padding: "0.55rem 0.6rem",
+                      textAlign: "center",
+                      fontWeight: 600,
+                      color: "var(--gray-600)",
+                      fontSize: "0.73rem",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.03em",
+                      borderBottom: "1px solid var(--gray-200)",
+                      width: 40,
+                    }}
+                  ></th>
                 </tr>
               </thead>
               <tbody>
-                {extractions.map((row, i) => (
+                {extractions.map((row) => (
                   <tr
-                    key={i}
+                    key={row.id}
                     style={{ borderBottom: "1px solid var(--gray-100)" }}
                   >
                     <td
@@ -636,6 +664,34 @@ export default function ExtractionsPanel() {
                       style={{ padding: "0.5rem 0.3rem", textAlign: "center" }}
                     >
                       <RowDownloadButton row={row} fieldKeys={allFieldKeys} />
+                    </td>
+                    <td
+                      style={{ padding: "0.5rem 0.3rem", textAlign: "center" }}
+                    >
+                      <button
+                        onClick={() => handleDeleteExtraction(row.id)}
+                        className="btn-ghost"
+                        style={{
+                          padding: "0.25rem 0.4rem",
+                          color: "var(--red-600)",
+                        }}
+                        title="Delete this extracted record"
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0l-1 14a2 2 0 01-2 2H7a2 2 0 01-2-2L4 6h16z"
+                          />
+                        </svg>
+                      </button>
                     </td>
                   </tr>
                 ))}
