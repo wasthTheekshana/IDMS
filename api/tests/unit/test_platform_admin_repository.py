@@ -37,7 +37,8 @@ async def test_get_by_email_and_update_last_login() -> None:
         assert found.last_login_at is not None
         assert found.last_login_at >= before
 
-    assert (
-        await PlatformAdminRepository(SessionLocal()).get_by_email("nobody@example.com")
-        is None
-    )
+    async with SessionLocal() as session:
+        assert (
+            await PlatformAdminRepository(session).get_by_email("nobody@example.com")
+            is None
+        )
