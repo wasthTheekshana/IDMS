@@ -37,8 +37,12 @@ export default function ExtractionsPanel() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
-  const [selectedDoc, setSelectedDoc] = useState<string>("");
+  const [selectedDocs, setSelectedDocs] = useState<Set<string>>(new Set());
   const [extracting, setExtracting] = useState(false);
+  const [extractProgress, setExtractProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const [exportLoading, setExportLoading] = useState<string | null>(null);
 
   const token = getAccessToken();
@@ -67,26 +71,53 @@ export default function ExtractionsPanel() {
     fetchAll();
   }, [fetchAll]);
 
+  function toggleDoc(id: string) {
+    setSelectedDocs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllDocs() {
+    setSelectedDocs((prev) =>
+      prev.size === docs.length ? new Set() : new Set(docs.map((d) => d.id)),
+    );
+  }
+
   async function handleExtract() {
-    if (!selectedDoc || !selectedTemplate) return;
+    if (selectedDocs.size === 0 || !selectedTemplate) return;
     setExtracting(true);
+    const docIds = Array.from(selectedDocs);
+    setExtractProgress({ done: 0, total: docIds.length });
     try {
-      const res = await fetch(`${API}/api/v1/templates/extract`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          document_id: selectedDoc,
-          template_id: selectedTemplate,
-        }),
-      });
-      if (res.ok) await fetchAll();
-    } catch {
-      /* ignore */
+      // Sequential, not Promise.all: each call is a real LLM request, and
+      // running many at once risks the provider's rate limits far more
+      // than a slower, one-at-a-time run does.
+      for (let i = 0; i < docIds.length; i++) {
+        try {
+          await fetch(`${API}/api/v1/templates/extract`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              document_id: docIds[i],
+              template_id: selectedTemplate,
+            }),
+          });
+        } catch {
+          /* one document failing shouldn't stop the rest */
+        }
+        setExtractProgress({ done: i + 1, total: docIds.length });
+      }
+      await fetchAll();
+      setSelectedDocs(new Set());
     } finally {
       setExtracting(false);
+      setExtractProgress(null);
     }
   }
 
@@ -360,37 +391,93 @@ export default function ExtractionsPanel() {
         >
           Run Extraction
         </h3>
-        <div
-          style={{
-            display: "flex",
-            gap: "0.5rem",
-            flexWrap: "wrap",
-            alignItems: "flex-end",
-          }}
-        >
-          <div style={{ flex: 1, minWidth: 150 }}>
-            <label
+        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div
               style={{
-                fontSize: "0.75rem",
-                color: "var(--gray-500)",
-                display: "block",
-                marginBottom: "0.2rem",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "0.3rem",
               }}
             >
-              Document
-            </label>
-            <select
-              value={selectedDoc}
-              onChange={(e) => setSelectedDoc(e.target.value)}
-              style={{ fontSize: "0.85rem" }}
+              <label style={{ fontSize: "0.75rem", color: "var(--gray-500)" }}>
+                Documents
+              </label>
+              {docs.length > 0 && (
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.3rem",
+                    fontSize: "0.75rem",
+                    color: "var(--gray-500)",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={
+                      selectedDocs.size === docs.length && docs.length > 0
+                    }
+                    onChange={toggleSelectAllDocs}
+                  />
+                  Select all ({docs.length})
+                </label>
+              )}
+            </div>
+            <div
+              style={{
+                border: "1px solid var(--gray-200)",
+                borderRadius: "var(--radius-md)",
+                maxHeight: 160,
+                overflowY: "auto",
+                background: "#fff",
+              }}
             >
-              <option value="">Select document...</option>
-              {docs.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.filename}
-                </option>
-              ))}
-            </select>
+              {docs.length === 0 ? (
+                <div
+                  style={{
+                    padding: "0.6rem",
+                    fontSize: "0.8rem",
+                    color: "var(--gray-400)",
+                  }}
+                >
+                  No processed documents available.
+                </div>
+              ) : (
+                docs.map((d) => (
+                  <label
+                    key={d.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      padding: "0.4rem 0.6rem",
+                      fontSize: "0.82rem",
+                      color: "var(--gray-700)",
+                      cursor: "pointer",
+                      borderBottom: "1px solid var(--gray-100)",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedDocs.has(d.id)}
+                      onChange={() => toggleDoc(d.id)}
+                    />
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {d.filename}
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
           </div>
           <div style={{ flex: 1, minWidth: 150 }}>
             <label
@@ -415,15 +502,25 @@ export default function ExtractionsPanel() {
                 </option>
               ))}
             </select>
+            <button
+              onClick={handleExtract}
+              disabled={
+                selectedDocs.size === 0 || !selectedTemplate || extracting
+              }
+              className="btn-primary"
+              style={{
+                whiteSpace: "nowrap",
+                marginTop: "0.6rem",
+                width: "100%",
+              }}
+            >
+              {extracting
+                ? `Extracting ${extractProgress?.done ?? 0}/${extractProgress?.total ?? selectedDocs.size}...`
+                : selectedDocs.size > 1
+                  ? `Extract (${selectedDocs.size} documents)`
+                  : "Extract"}
+            </button>
           </div>
-          <button
-            onClick={handleExtract}
-            disabled={!selectedDoc || !selectedTemplate || extracting}
-            className="btn-primary"
-            style={{ whiteSpace: "nowrap" }}
-          >
-            {extracting ? "Extracting..." : "Extract"}
-          </button>
         </div>
       </div>
 
