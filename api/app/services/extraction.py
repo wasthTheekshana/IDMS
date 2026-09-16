@@ -59,8 +59,16 @@ async def extract_fields(
 
     prompt = (
         "Extract the following fields from the document text below. "
+        "Each field's label describes what to look for, but the value you "
+        "return must be the actual data written in the document (a name, "
+        "number, date, address, etc.) — never the field label itself, even "
+        "if that label also appears verbatim as a heading or caption in the "
+        'document. For example, if a field is labeled "Invoice Number" and '
+        'the document has a heading "Invoice Number" followed by "4521", '
+        'the correct value is "4521", not "Invoice Number".\n'
         "Return ONLY a valid JSON object with the field keys as properties. "
-        "If a field cannot be found, set its value to null. "
+        "If a field's actual value cannot be found, set it to null — do not "
+        "fill it in with the label or any other placeholder text. "
         "Do not include any explanation, just the JSON.\n\n"
         f"## Fields to extract:\n{field_desc}\n\n"
         f"## Document text:\n{text}\n\n"
@@ -73,6 +81,7 @@ async def extract_fields(
     raw = await _call_llm(prompt, max_tokens=max_tokens)
 
     data = _parse_json(raw)
+    _discard_label_echoes(data, tmpl.fields)
 
     extraction = Extraction(
         id=uuid.uuid4(),
@@ -84,6 +93,19 @@ async def extract_fields(
     session.add(extraction)
     await session.flush()
     return extraction
+
+
+def _discard_label_echoes(data: dict, fields: list[dict]) -> None:
+    """Null out any field whose "extracted" value is just its own label
+    echoed back — a known LLM failure mode when a field's label also
+    appears verbatim in the document (e.g. as a heading), and the model
+    copies the heading instead of the value that follows it."""
+    for f in fields:
+        key = f["key"]
+        label = str(f.get("label", "")).strip().casefold()
+        value = data.get(key)
+        if isinstance(value, str) and value.strip().casefold() == label:
+            data[key] = None
 
 
 def _parse_json(raw: str) -> dict:
