@@ -66,6 +66,13 @@ async def extract_fields(
         'document. For example, if a field is labeled "Invoice Number" and '
         'the document has a heading "Invoice Number" followed by "4521", '
         'the correct value is "4521", not "Invoice Number".\n'
+        "Some documents show a reference number twice: once as part of a "
+        "code that also contains letters (e.g. a barcode value like "
+        '"ABS1813890"), and once by itself as plain digits (e.g. "1813890"), '
+        "often right below a heading. When a field is asking for that kind "
+        "of number, prefer the plain-digit form over the letter-prefixed "
+        "code, unless the field explicitly asks for the code including its "
+        "prefix.\n"
         "Return ONLY a valid JSON object with the field keys as properties. "
         "If a field's actual value cannot be found, set it to null — do not "
         "fill it in with the label or any other placeholder text. "
@@ -81,7 +88,20 @@ async def extract_fields(
     raw = await _call_llm(prompt, max_tokens=max_tokens)
 
     data = _parse_json(raw)
-    _discard_label_echoes(data, tmpl.fields)
+    echoed_keys = _discard_label_echoes(data, tmpl.fields)
+
+    # A field echoing its own label back is a known transient LLM slip —
+    # often correct on a second, independent attempt at the same prompt.
+    # Retry once, and only keep the retry's values for the fields that
+    # actually failed the first time, so an unrelated field that was
+    # already extracted correctly can't get clobbered by the retry.
+    if echoed_keys:
+        retry_raw = await _call_llm(prompt, max_tokens=max_tokens)
+        retry_data = _parse_json(retry_raw)
+        _discard_label_echoes(retry_data, tmpl.fields)
+        for key in echoed_keys:
+            if retry_data.get(key) is not None:
+                data[key] = retry_data[key]
 
     extraction = Extraction(
         id=uuid.uuid4(),
@@ -95,17 +115,21 @@ async def extract_fields(
     return extraction
 
 
-def _discard_label_echoes(data: dict, fields: list[dict]) -> None:
+def _discard_label_echoes(data: dict, fields: list[dict]) -> list[str]:
     """Null out any field whose "extracted" value is just its own label
     echoed back — a known LLM failure mode when a field's label also
     appears verbatim in the document (e.g. as a heading), and the model
-    copies the heading instead of the value that follows it."""
+    copies the heading instead of the value that follows it. Returns the
+    keys that were nulled out, so a caller can retry just those fields."""
+    echoed: list[str] = []
     for f in fields:
         key = f["key"]
         label = str(f.get("label", "")).strip().casefold()
         value = data.get(key)
         if isinstance(value, str) and value.strip().casefold() == label:
             data[key] = None
+            echoed.append(key)
+    return echoed
 
 
 def _parse_json(raw: str) -> dict:

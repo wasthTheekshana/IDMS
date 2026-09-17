@@ -1,4 +1,5 @@
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -110,3 +111,135 @@ async def test_cannot_delete_another_orgs_extraction(
 
     still_there = await client_a.get("/api/v1/templates/extractions")
     assert len(still_there.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_label_echo_on_first_attempt_is_recovered_by_retry(
+    platform_admin_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    """If the first LLM call echoes a field's own label back (the known
+    failure mode), a second attempt at the same prompt should recover the
+    real value rather than leaving the field blank."""
+    admin_client, _ = platform_admin_client
+    client, _ = auth_client
+
+    me = await client.get("/api/v1/users/me")
+    org_id = me.json()["org_id"]
+    await admin_client.patch(
+        f"/api/v1/platform-admin/organizations/{org_id}",
+        json={"ai_extraction_enabled": True},
+    )
+
+    doc_id = uuid.uuid4()
+    tmpl_id = uuid.uuid4()
+    async with SessionLocal.begin() as session:
+        await session.execute(text(f"SET LOCAL app.current_org_id = '{org_id}'"))
+        session.add(
+            Document(
+                id=doc_id,
+                org_id=uuid.UUID(org_id),
+                uploaded_by=uuid.UUID(me.json()["id"]),
+                filename="pod.pdf",
+                mime_type="application/pdf",
+                size_bytes=512,
+                r2_key=f"orgs/{org_id}/docs/{doc_id}/pod.pdf",
+                status="indexed",
+                extracted_text="PROOF OF DELIVERY NOTE\n\n1225650",
+            )
+        )
+        session.add(
+            ExtractionTemplate(
+                id=tmpl_id,
+                org_id=uuid.UUID(org_id),
+                name="POD",
+                fields=[
+                    {
+                        "key": "proof_of_delivery_note",
+                        "label": "PROOF OF DELIVERY NOTE",
+                        "type": "text",
+                    }
+                ],
+            )
+        )
+
+    with patch(
+        "app.services.extraction._call_llm",
+        new_callable=AsyncMock,
+        side_effect=[
+            '{"proof_of_delivery_note": "PROOF OF DELIVERY NOTE"}',
+            '{"proof_of_delivery_note": "1225650"}',
+        ],
+    ) as mock_call_llm:
+        resp = await client.post(
+            "/api/v1/templates/extract",
+            json={"document_id": str(doc_id), "template_id": str(tmpl_id)},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["proof_of_delivery_note"] == "1225650"
+    assert mock_call_llm.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_repeated_label_echo_leaves_field_null_not_wrong(
+    platform_admin_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    """If the retry ALSO echoes the label, the field ends up null (honest
+    "not found") rather than the wrong label text landing in the data."""
+    admin_client, _ = platform_admin_client
+    client, _ = auth_client
+
+    me = await client.get("/api/v1/users/me")
+    org_id = me.json()["org_id"]
+    await admin_client.patch(
+        f"/api/v1/platform-admin/organizations/{org_id}",
+        json={"ai_extraction_enabled": True},
+    )
+
+    doc_id = uuid.uuid4()
+    tmpl_id = uuid.uuid4()
+    async with SessionLocal.begin() as session:
+        await session.execute(text(f"SET LOCAL app.current_org_id = '{org_id}'"))
+        session.add(
+            Document(
+                id=doc_id,
+                org_id=uuid.UUID(org_id),
+                uploaded_by=uuid.UUID(me.json()["id"]),
+                filename="pod.pdf",
+                mime_type="application/pdf",
+                size_bytes=512,
+                r2_key=f"orgs/{org_id}/docs/{doc_id}/pod.pdf",
+                status="indexed",
+                extracted_text="PROOF OF DELIVERY NOTE\n\n1225650",
+            )
+        )
+        session.add(
+            ExtractionTemplate(
+                id=tmpl_id,
+                org_id=uuid.UUID(org_id),
+                name="POD",
+                fields=[
+                    {
+                        "key": "proof_of_delivery_note",
+                        "label": "PROOF OF DELIVERY NOTE",
+                        "type": "text",
+                    }
+                ],
+            )
+        )
+
+    with patch(
+        "app.services.extraction._call_llm",
+        new_callable=AsyncMock,
+        return_value='{"proof_of_delivery_note": "PROOF OF DELIVERY NOTE"}',
+    ) as mock_call_llm:
+        resp = await client.post(
+            "/api/v1/templates/extract",
+            json={"document_id": str(doc_id), "template_id": str(tmpl_id)},
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["proof_of_delivery_note"] is None
+    assert mock_call_llm.call_count == 2
