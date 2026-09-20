@@ -1,0 +1,155 @@
+# infra/docker-compose.prod.yml — Production stack behind the shared nginx reverse proxy.
+# Run from infra/: docker compose -f docker-compose.prod.yml --env-file ../.env.docker up -d
+services:
+  # ---- Infrastructure ----
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: idms-postgres
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - idms-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  redis:
+    image: redis:7-alpine
+    container_name: idms-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    expose:
+      - "6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - idms-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---- Migrations (run once then exit) ----
+  migrate:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: idms-migrate
+    command: ["sh", "scripts/migrate.sh"]
+    env_file: ../.env.docker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    networks:
+      - idms-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ---- API ----
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: idms-api
+    expose:
+      - "8000"
+    env_file: ../.env.docker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    networks:
+      - idms-net
+      - shared-nginx
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---- Celery Worker ----
+  worker:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: idms-worker
+    command: >
+      uv run --no-sync celery -A app.workers.celery_app worker
+      -Q ocr,embed,ai,default -c 4 --loglevel=info
+    env_file: ../.env.docker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    networks:
+      - idms-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---- Celery Beat (scheduler) ----
+  beat:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: idms-beat
+    command: >
+      uv run --no-sync celery -A app.workers.celery_app beat
+      --loglevel=info -s /tmp/celerybeat-schedule
+    env_file: ../.env.docker
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+    networks:
+      - idms-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---- Frontend (Next.js) ----
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: https://testsys.shop/api
+    container_name: idms-web
+    expose:
+      - "3000"
+    networks:
+      - idms-net
+      - shared-nginx
+    depends_on:
+      - api
+    restart: unless-stopped
+
+networks:
+  idms-net:
+    name: idms-net
+  shared-nginx:
+    name: shared-nginx
+    external: true
+
+volumes:
+  pgdata:
+  redisdata:

@@ -1,0 +1,7 @@
+# Local-only override (this machine): dok_redis (DOK-HR project) already
+# publishes host port 6379, so don't publish IDMS redis to the host.
+# IDMS containers reach redis via the internal docker network; host-side
+# pytest uses whatever redis answers on localhost:6379.
+services:
+  redis:
+    ports: !override []
