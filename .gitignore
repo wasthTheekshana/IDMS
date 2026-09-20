@@ -30,3 +30,7 @@ Thumbs.db
 # Celery beat schedule files
 celerybeat-schedule*
 .superpowers/
+
+# Database backups (infra/scripts/backup.sh) — never commit raw customer data
+*.dump
+infra/*.dump
