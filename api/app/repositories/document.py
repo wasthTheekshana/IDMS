@@ -5,6 +5,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.document import Document, DocumentStatus
+from app.models.template import Extraction
 
 
 class DocumentRepository:
@@ -61,6 +62,10 @@ class DocumentRepository:
         return result.scalars().all()
 
     async def delete_by_ids(self, doc_ids: list[uuid.UUID], org_id: uuid.UUID) -> int:
+        # extractions.document_id has no ON DELETE CASCADE
+        await self._s.execute(
+            delete(Extraction).where(Extraction.document_id.in_(doc_ids))
+        )
         result = await self._s.execute(
             delete(Document)
             .where(Document.id.in_(doc_ids))

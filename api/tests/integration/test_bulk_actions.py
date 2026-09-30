@@ -3,12 +3,16 @@
 R2 storage operations are mocked.
 """
 
+import uuid
 from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 
+from app.core.db import SessionLocal
 from app.main import app
+from app.models.template import Extraction, ExtractionTemplate
 
 
 async def _register(client: AsyncClient, suffix: str = "") -> str:
@@ -64,6 +68,48 @@ async def test_bulk_delete_removes_documents(client: AsyncClient) -> None:
 
     list_resp = await client.get("/api/v1/documents")
     assert len(list_resp.json()) == 0
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_removes_documents_with_extractions(
+    client: AsyncClient,
+) -> None:
+    """extractions.document_id has no ON DELETE CASCADE — deleting a document
+    that has an extraction must not hit a foreign-key violation."""
+    await _register(client, "del_ext")
+    me = await client.get("/api/v1/users/me")
+    org_id = uuid.UUID(me.json()["org_id"])
+    doc1 = await _create_doc(client, "file1.pdf")
+
+    tmpl_id = uuid.uuid4()
+    async with SessionLocal.begin() as session:
+        await session.execute(text(f"SET LOCAL app.current_org_id = '{org_id}'"))
+        session.add(
+            ExtractionTemplate(
+                id=tmpl_id,
+                org_id=org_id,
+                name="T",
+                fields=[{"key": "a", "label": "A", "type": "text"}],
+            )
+        )
+        await session.flush()
+        session.add(
+            Extraction(
+                id=uuid.uuid4(),
+                org_id=org_id,
+                document_id=uuid.UUID(doc1),
+                template_id=tmpl_id,
+                data={"a": "1"},
+            )
+        )
+
+    with patch("app.services.storage.delete_objects"):
+        resp = await client.post(
+            "/api/v1/documents/bulk/delete",
+            json={"document_ids": [doc1]},
+        )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] == 1
 
 
 @pytest.mark.asyncio
