@@ -51,6 +51,46 @@ async def test_patch_organization_toggles_ai_feature(
 
 
 @pytest.mark.asyncio
+async def test_patch_organization_updates_monthly_page_quota(
+    platform_admin_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    admin_client, _ = platform_admin_client
+    client_a, _ = auth_client
+
+    me = await client_a.get("/api/v1/users/me")
+    org_id = me.json()["org_id"]
+
+    resp = await admin_client.patch(
+        f"/api/v1/platform-admin/organizations/{org_id}",
+        json={"monthly_page_quota": 2000},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["monthly_page_quota"] == 2000
+
+    # Other fields are untouched by a partial update.
+    assert resp.json()["ai_qa_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_patch_organization_rejects_non_positive_quota(
+    platform_admin_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    admin_client, _ = platform_admin_client
+    client_a, _ = auth_client
+
+    me = await client_a.get("/api/v1/users/me")
+    org_id = me.json()["org_id"]
+
+    resp = await admin_client.patch(
+        f"/api/v1/platform-admin/organizations/{org_id}",
+        json={"monthly_page_quota": 0},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_patch_unknown_organization_returns_404(
     platform_admin_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
 ) -> None:

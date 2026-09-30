@@ -26,6 +26,7 @@ export default function AdminPage() {
   const [expandedOrgId, setExpandedOrgId] = useState<string | null>(null);
   const [docs, setDocs] = useState<AdminDocument[]>([]);
   const [error, setError] = useState("");
+  const [quotaDrafts, setQuotaDrafts] = useState<Record<string, string>>({});
 
   const loadOrgs = useCallback(() => {
     adminApi
@@ -66,6 +67,40 @@ export default function AdminPage() {
 
   async function handleSuspendToggle(org: AdminOrganization) {
     await handleToggle(org, "is_suspended");
+  }
+
+  async function handleQuotaSave(org: AdminOrganization) {
+    const draft = quotaDrafts[org.id];
+    if (draft === undefined) return;
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setError("Page quota must be a positive number");
+      return;
+    }
+    if (parsed === org.monthly_page_quota) {
+      setQuotaDrafts((prev) => {
+        const next = { ...prev };
+        delete next[org.id];
+        return next;
+      });
+      return;
+    }
+    setError("");
+    try {
+      const updated = await adminApi.updateOrganization(org.id, {
+        monthly_page_quota: parsed,
+      });
+      setOrgs((prev) =>
+        (prev ?? []).map((o) => (o.id === updated.id ? updated : o)),
+      );
+      setQuotaDrafts((prev) => {
+        const next = { ...prev };
+        delete next[org.id];
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Update failed");
+    }
   }
 
   async function toggleDocuments(orgId: string) {
@@ -220,7 +255,33 @@ export default function AdminPage() {
                     ${org.ai_cost_total_usd.toFixed(4)}
                   </td>
                   <td style={{ padding: "0.6rem", textAlign: "right" }}>
-                    {org.pages_used_this_month}/{org.monthly_page_quota}
+                    <span style={{ marginRight: "0.4rem" }}>
+                      {org.pages_used_this_month}/
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={
+                        quotaDrafts[org.id] ?? String(org.monthly_page_quota)
+                      }
+                      onChange={(e) =>
+                        setQuotaDrafts((prev) => ({
+                          ...prev,
+                          [org.id]: e.target.value,
+                        }))
+                      }
+                      onBlur={() => handleQuotaSave(org)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                      }}
+                      style={{
+                        width: "5rem",
+                        textAlign: "right",
+                        border: "1px solid var(--gray-200)",
+                        borderRadius: "var(--radius-sm)",
+                        padding: "0.15rem 0.35rem",
+                      }}
+                    />
                   </td>
                   {TOGGLE_FIELDS.map((f) => (
                     <td

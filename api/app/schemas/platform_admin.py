@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PlatformAdminProfile(BaseModel):
@@ -35,6 +35,7 @@ class AdminOrgUpdateRequest(BaseModel):
     ai_summarization_enabled: bool | None = None
     ai_search_answer_enabled: bool | None = None
     ai_extraction_enabled: bool | None = None
+    monthly_page_quota: int | None = Field(default=None, gt=0)
 
 
 class AdminDocumentResponse(BaseModel):

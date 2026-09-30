@@ -85,6 +85,8 @@ async def update_organization(
         org.ai_search_answer_enabled = body.ai_search_answer_enabled
     if body.ai_extraction_enabled is not None:
         org.ai_extraction_enabled = body.ai_extraction_enabled
+    if body.monthly_page_quota is not None:
+        org.monthly_page_quota = body.monthly_page_quota
 
     await session.flush()
     return await _build_org_response(session, org)

@@ -26,6 +26,7 @@ export interface AdminOrgUpdate {
   ai_summarization_enabled?: boolean;
   ai_search_answer_enabled?: boolean;
   ai_extraction_enabled?: boolean;
+  monthly_page_quota?: number;
 }
 
 export interface AdminDocument {
