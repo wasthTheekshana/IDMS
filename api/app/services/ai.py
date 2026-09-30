@@ -174,6 +174,40 @@ async def _call_llm(prompt: str, max_tokens: int | None = None) -> str:
     return "[AI disabled: no GROQ_API_KEY or GOOGLE_AI_API_KEY configured]"
 
 
+async def _call_extraction_llm(prompt: str, max_tokens: int | None = None) -> str:
+    """Structured field extraction — prefers Mistral Small, validated against
+    scanned courier-waybill quality (zero hallucinations vs. Ministral 14B
+    across a 5-page sample); falls back to the general Groq/Gemini chain."""
+    if settings.MISTRAL_API_KEY:
+        return await _call_mistral(prompt, max_tokens)
+    return await _call_llm(prompt, max_tokens)
+
+
+async def _call_mistral(prompt: str, max_tokens: int | None = None) -> str:
+    try:
+        from mistralai.client.models.chatcompletionrequest import (
+            ChatCompletionRequestMessageTypedDict,
+        )
+        from mistralai.client.sdk import Mistral
+
+        client = Mistral(api_key=settings.MISTRAL_API_KEY, timeout_ms=90_000)
+        messages: list[ChatCompletionRequestMessageTypedDict] = [
+            {"role": "user", "content": prompt}
+        ]
+        response = await client.chat.complete_async(
+            model=settings.MISTRAL_EXTRACTION_MODEL,
+            messages=messages,
+            max_tokens=max_tokens or settings.AI_MAX_RESPONSE_TOKENS,
+        )
+        choice = response.choices[0] if response.choices else None
+        content = choice.message.content if choice and choice.message else None
+        if isinstance(content, str) and content:
+            return content
+        return "[No response from AI]"
+    except Exception as exc:
+        return f"[AI error: {exc}]"
+
+
 async def _call_groq(prompt: str, max_tokens: int | None = None) -> str:
     try:
         from groq import AsyncGroq

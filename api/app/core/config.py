@@ -57,8 +57,9 @@ class Settings(BaseSettings):
     R2_BUCKET: str = ""
     R2_ENDPOINT: str = ""
 
-    # Mistral (OCR)
+    # Mistral (OCR + field extraction)
     MISTRAL_API_KEY: str = ""
+    MISTRAL_EXTRACTION_MODEL: str = "mistral-small-latest"
 
     # Google AI (Gemini)
     GOOGLE_AI_API_KEY: str = ""

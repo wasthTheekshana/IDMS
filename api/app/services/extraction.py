@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.document import Document
 from app.models.organization import Organization
 from app.models.template import Extraction, ExtractionTemplate
-from app.services.ai import _call_llm
+from app.services.ai import _call_extraction_llm as _call_llm
 
 logger = logging.getLogger(__name__)
 
