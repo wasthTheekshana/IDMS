@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class FieldDefinition(BaseModel):
@@ -57,3 +57,16 @@ class ExtractionRow(BaseModel):
     template_name: str
     data: dict[str, Any]
     created_at: datetime
+
+
+class BulkExtractionDeleteRequest(BaseModel):
+    extraction_ids: list[uuid.UUID]
+
+    @field_validator("extraction_ids")
+    @classmethod
+    def validate_ids(cls, v: list[uuid.UUID]) -> list[uuid.UUID]:
+        if len(v) == 0:
+            raise ValueError("extraction_ids must not be empty")
+        if len(v) > 500:
+            raise ValueError("extraction_ids must not exceed 500 items")
+        return v

@@ -1,15 +1,19 @@
 import csv
 import io
 import uuid
+from collections.abc import Sequence
+from datetime import date, datetime, time, timedelta
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select
 
 from app.core.deps import AuthSession, CurrentUserDep
 from app.models.document import Document
 from app.models.template import Extraction, ExtractionTemplate
+from app.schemas.document import BulkDeleteResponse
 from app.schemas.template import (
+    BulkExtractionDeleteRequest,
     ExtractionResponse,
     ExtractionRow,
     ExtractRequest,
@@ -28,6 +32,30 @@ def _safe_cell(v: str) -> str:
     if v and v[0] in _FORMULA_PREFIXES:
         return "'" + v
     return v
+
+
+def _extraction_filters(
+    org_id: uuid.UUID,
+    template_id: uuid.UUID | None,
+    extraction_ids: Sequence[uuid.UUID] | None,
+    date_from: date | None,
+    date_to: date | None,
+) -> list[ColumnElement[bool]]:
+    conditions: list[ColumnElement[bool]] = [Extraction.org_id == org_id]
+    if template_id:
+        conditions.append(Extraction.template_id == template_id)
+    if extraction_ids:
+        conditions.append(Extraction.id.in_(extraction_ids))
+    if date_from:
+        conditions.append(
+            Extraction.created_at >= datetime.combine(date_from, time.min)
+        )
+    if date_to:
+        conditions.append(
+            Extraction.created_at
+            < datetime.combine(date_to, time.min) + timedelta(days=1)
+        )
+    return conditions
 
 
 @router.post("", response_model=TemplateResponse, status_code=201)
@@ -127,16 +155,20 @@ async def list_extractions(
     current_user: CurrentUserDep,
     session: AuthSession,
     template_id: uuid.UUID | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> list[ExtractionRow]:
     q = (
         select(Extraction, Document.filename, ExtractionTemplate.name)
         .join(Document, Document.id == Extraction.document_id)
         .join(ExtractionTemplate, ExtractionTemplate.id == Extraction.template_id)
-        .where(Extraction.org_id == current_user.org_id)
+        .where(
+            *_extraction_filters(
+                current_user.org_id, template_id, None, date_from, date_to
+            )
+        )
         .order_by(Extraction.created_at.desc())
     )
-    if template_id:
-        q = q.where(Extraction.template_id == template_id)
 
     result = await session.execute(q)
     rows = []
@@ -172,21 +204,49 @@ async def delete_extraction(
     await session.delete(extraction)
 
 
+@router.post("/extractions/bulk-delete", response_model=BulkDeleteResponse)
+async def bulk_delete_extractions(
+    body: BulkExtractionDeleteRequest,
+    current_user: CurrentUserDep,
+    session: AuthSession,
+) -> BulkDeleteResponse:
+    result = await session.execute(
+        select(Extraction).where(
+            Extraction.id.in_(body.extraction_ids),
+            Extraction.org_id == current_user.org_id,
+        )
+    )
+    extractions = result.scalars().all()
+    if len(extractions) != len(body.extraction_ids):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or more extractions not found",
+        )
+    for extraction in extractions:
+        await session.delete(extraction)
+    return BulkDeleteResponse(deleted=len(extractions))
+
+
 @router.get("/extractions/export/csv")
 async def export_csv(
     current_user: CurrentUserDep,
     session: AuthSession,
     template_id: uuid.UUID | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    extraction_ids: list[uuid.UUID] | None = Query(None),
 ) -> StreamingResponse:
     q = (
         select(Extraction, Document.filename, ExtractionTemplate)
         .join(Document, Document.id == Extraction.document_id)
         .join(ExtractionTemplate, ExtractionTemplate.id == Extraction.template_id)
-        .where(Extraction.org_id == current_user.org_id)
+        .where(
+            *_extraction_filters(
+                current_user.org_id, template_id, extraction_ids, date_from, date_to
+            )
+        )
         .order_by(Extraction.created_at.desc())
     )
-    if template_id:
-        q = q.where(Extraction.template_id == template_id)
 
     result = await session.execute(q)
     rows = result.all()
@@ -235,6 +295,9 @@ async def export_excel(
     current_user: CurrentUserDep,
     session: AuthSession,
     template_id: uuid.UUID | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    extraction_ids: list[uuid.UUID] | None = Query(None),
 ) -> StreamingResponse:
     from openpyxl import Workbook
     from openpyxl.styles import Font
@@ -243,11 +306,13 @@ async def export_excel(
         select(Extraction, Document.filename, ExtractionTemplate)
         .join(Document, Document.id == Extraction.document_id)
         .join(ExtractionTemplate, ExtractionTemplate.id == Extraction.template_id)
-        .where(Extraction.org_id == current_user.org_id)
+        .where(
+            *_extraction_filters(
+                current_user.org_id, template_id, extraction_ids, date_from, date_to
+            )
+        )
         .order_by(Extraction.created_at.desc())
     )
-    if template_id:
-        q = q.where(Extraction.template_id == template_id)
 
     result = await session.execute(q)
     rows = result.all()

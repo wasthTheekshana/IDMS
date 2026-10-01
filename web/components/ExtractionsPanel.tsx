@@ -44,19 +44,40 @@ export default function ExtractionsPanel() {
     total: number;
   } | null>(null);
   const [exportLoading, setExportLoading] = useState<string | null>(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [selectedExtractions, setSelectedExtractions] = useState<Set<string>>(
+    new Set(),
+  );
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const token = getAccessToken();
 
   const fetchAll = useCallback(async () => {
     if (!token) return;
     const headers = { Authorization: `Bearer ${token}` };
+    const extractionsUrl = new URL(`${API}/api/v1/templates/extractions`);
+    if (dateFrom) extractionsUrl.searchParams.set("date_from", dateFrom);
+    if (dateTo) extractionsUrl.searchParams.set("date_to", dateTo);
+
     const [tRes, eRes, dRes] = await Promise.all([
       fetch(`${API}/api/v1/templates`, { headers }),
-      fetch(`${API}/api/v1/templates/extractions`, { headers }),
+      fetch(extractionsUrl.toString(), { headers }),
       fetch(`${API}/api/v1/documents`, { headers }),
     ]);
     if (tRes.ok) setTemplates(await tRes.json());
-    if (eRes.ok) setExtractions(await eRes.json());
+    if (eRes.ok) {
+      const rows: ExtractionRow[] = await eRes.json();
+      setExtractions(rows);
+      const validIds = new Set(rows.map((r) => r.id));
+      setSelectedExtractions((prev) => {
+        const next = new Set<string>();
+        Array.from(prev).forEach((id) => {
+          if (validIds.has(id)) next.add(id);
+        });
+        return next;
+      });
+    }
     if (dRes.ok) {
       const all = await dRes.json();
       setDocs(
@@ -65,11 +86,57 @@ export default function ExtractionsPanel() {
         ),
       );
     }
-  }, [token]);
+  }, [token, dateFrom, dateTo]);
 
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  function toggleExtraction(id: string) {
+    setSelectedExtractions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllExtractions() {
+    setSelectedExtractions((prev) =>
+      prev.size === extractions.length
+        ? new Set()
+        : new Set(extractions.map((e) => e.id)),
+    );
+  }
+
+  async function handleBulkDeleteExtractions() {
+    if (selectedExtractions.size === 0) return;
+    if (
+      !confirm(
+        `Delete ${selectedExtractions.size} selected extracted record${selectedExtractions.size !== 1 ? "s" : ""}? This cannot be undone.`,
+      )
+    )
+      return;
+    setBulkDeleting(true);
+    try {
+      await fetch(`${API}/api/v1/templates/extractions/bulk-delete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          extraction_ids: Array.from(selectedExtractions),
+        }),
+      });
+      setSelectedExtractions(new Set());
+      await fetchAll();
+    } catch {
+      /* ignore */
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
 
   function toggleDoc(id: string) {
     setSelectedDocs((prev) => {
@@ -153,10 +220,20 @@ export default function ExtractionsPanel() {
   async function handleExport(format: "csv" | "excel") {
     setExportLoading(format);
     try {
-      const res = await fetch(
+      const url = new URL(
         `${API}/api/v1/templates/extractions/export/${format}`,
-        { headers: { Authorization: `Bearer ${token}` } },
       );
+      if (selectedExtractions.size > 0) {
+        Array.from(selectedExtractions).forEach((id) => {
+          url.searchParams.append("extraction_ids", id);
+        });
+      } else {
+        if (dateFrom) url.searchParams.set("date_from", dateFrom);
+        if (dateTo) url.searchParams.set("date_to", dateTo);
+      }
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (res.ok) {
         const blob = await res.blob();
         const a = document.createElement("a");
@@ -524,6 +601,96 @@ export default function ExtractionsPanel() {
         </div>
       </div>
 
+      {/* Date filter */}
+      {templates.length > 0 && (
+        <div
+          className="card"
+          style={{
+            padding: "0.75rem 1rem",
+            marginBottom: "1rem",
+            display: "flex",
+            alignItems: "flex-end",
+            gap: "0.75rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <label
+              style={{
+                fontSize: "0.75rem",
+                color: "var(--gray-500)",
+                display: "block",
+                marginBottom: "0.2rem",
+              }}
+            >
+              Extracted from
+            </label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              style={{ fontSize: "0.82rem" }}
+            />
+          </div>
+          <div>
+            <label
+              style={{
+                fontSize: "0.75rem",
+                color: "var(--gray-500)",
+                display: "block",
+                marginBottom: "0.2rem",
+              }}
+            >
+              Extracted to
+            </label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              style={{ fontSize: "0.82rem" }}
+            />
+          </div>
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+              }}
+              className="btn-ghost"
+              style={{ fontSize: "0.78rem", padding: "0.35rem 0.6rem" }}
+            >
+              Clear filter
+            </button>
+          )}
+          {selectedExtractions.size > 0 && (
+            <div
+              style={{
+                marginLeft: "auto",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                fontSize: "0.8rem",
+                color: "var(--gray-600)",
+              }}
+            >
+              {selectedExtractions.size} selected
+              <button
+                onClick={handleBulkDeleteExtractions}
+                disabled={bulkDeleting}
+                className="btn-secondary"
+                style={{
+                  fontSize: "0.78rem",
+                  padding: "0.3rem 0.65rem",
+                  color: "var(--red-600)",
+                }}
+              >
+                {bulkDeleting ? "Deleting..." : "Delete Selected"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Results table */}
       {extractions.length > 0 && (
         <div>
@@ -571,7 +738,11 @@ export default function ExtractionsPanel() {
                     d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                   />
                 </svg>
-                {exportLoading === "csv" ? "..." : "CSV"}
+                {exportLoading === "csv"
+                  ? "..."
+                  : selectedExtractions.size > 0
+                    ? `CSV (${selectedExtractions.size})`
+                    : "CSV"}
               </button>
               <button
                 onClick={() => handleExport("excel")}
@@ -599,7 +770,11 @@ export default function ExtractionsPanel() {
                     d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                   />
                 </svg>
-                {exportLoading === "excel" ? "..." : "Excel"}
+                {exportLoading === "excel"
+                  ? "..."
+                  : selectedExtractions.size > 0
+                    ? `Excel (${selectedExtractions.size})`
+                    : "Excel"}
               </button>
             </div>
           </div>
@@ -620,6 +795,24 @@ export default function ExtractionsPanel() {
             >
               <thead>
                 <tr style={{ background: "var(--gray-50)" }}>
+                  <th
+                    style={{
+                      padding: "0.55rem 0.6rem",
+                      textAlign: "center",
+                      borderBottom: "1px solid var(--gray-200)",
+                      width: 36,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={
+                        selectedExtractions.size === extractions.length &&
+                        extractions.length > 0
+                      }
+                      onChange={toggleSelectAllExtractions}
+                      title="Select all"
+                    />
+                  </th>
                   <th
                     style={{
                       padding: "0.55rem 0.6rem",
@@ -714,6 +907,15 @@ export default function ExtractionsPanel() {
                     style={{ borderBottom: "1px solid var(--gray-100)" }}
                   >
                     <td
+                      style={{ padding: "0.5rem 0.6rem", textAlign: "center" }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedExtractions.has(row.id)}
+                        onChange={() => toggleExtraction(row.id)}
+                      />
+                    </td>
+                    <td
                       style={{
                         padding: "0.5rem 0.6rem",
                         color: "var(--gray-800)",
@@ -807,8 +1009,9 @@ export default function ExtractionsPanel() {
           }}
         >
           <p>
-            No extractions yet. Select a document and template above to extract
-            data.
+            {dateFrom || dateTo
+              ? "No extractions in the selected date range."
+              : "No extractions yet. Select a document and template above to extract data."}
           </p>
         </div>
       )}

@@ -1,6 +1,9 @@
+import io
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
+import openpyxl
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
@@ -243,3 +246,182 @@ async def test_repeated_label_echo_leaves_field_null_not_wrong(
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["proof_of_delivery_note"] is None
     assert mock_call_llm.call_count == 2
+
+
+async def _setup_extraction_at(
+    org_id: uuid.UUID, user_id: uuid.UUID, created_at: datetime, suffix: str
+) -> uuid.UUID:
+    doc_id = uuid.uuid4()
+    tmpl_id = uuid.uuid4()
+    ext_id = uuid.uuid4()
+    async with SessionLocal.begin() as session:
+        await session.execute(text(f"SET LOCAL app.current_org_id = '{org_id}'"))
+        session.add(
+            Document(
+                id=doc_id,
+                org_id=org_id,
+                uploaded_by=user_id,
+                filename=f"invoice-{suffix}.pdf",
+                mime_type="application/pdf",
+                size_bytes=1024,
+                r2_key=f"orgs/{org_id}/docs/{doc_id}/invoice-{suffix}.pdf",
+                status="indexed",
+                extracted_text="Total: $100",
+            )
+        )
+        session.add(
+            ExtractionTemplate(
+                id=tmpl_id,
+                org_id=org_id,
+                name=f"Invoice {suffix}",
+                fields=[{"key": "total", "label": "Total", "type": "text"}],
+            )
+        )
+        await session.flush()
+        session.add(
+            Extraction(
+                id=ext_id,
+                org_id=org_id,
+                document_id=doc_id,
+                template_id=tmpl_id,
+                data={"total": "$100"},
+                created_at=created_at,
+            )
+        )
+    return ext_id
+
+
+@pytest.mark.asyncio
+async def test_list_extractions_filters_by_date_range(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    client, _ = auth_client
+    me = await client.get("/api/v1/users/me")
+    org_id = uuid.UUID(me.json()["org_id"])
+    user_id = uuid.UUID(me.json()["id"])
+
+    old_id = await _setup_extraction_at(
+        org_id, user_id, datetime(2026, 1, 1, tzinfo=UTC), "old"
+    )
+    recent_id = await _setup_extraction_at(
+        org_id, user_id, datetime(2026, 6, 15, tzinfo=UTC), "recent"
+    )
+
+    resp = await client.get(
+        "/api/v1/templates/extractions",
+        params={"date_from": "2026-06-01", "date_to": "2026-06-30"},
+    )
+    assert resp.status_code == 200, resp.text
+    ids = {row["id"] for row in resp.json()}
+    assert ids == {str(recent_id)}
+    assert str(old_id) not in ids
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_extractions_removes_them(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    client, _ = auth_client
+    me = await client.get("/api/v1/users/me")
+    org_id = uuid.UUID(me.json()["org_id"])
+    user_id = uuid.UUID(me.json()["id"])
+    now = datetime.now(UTC)
+
+    id1 = await _setup_extraction_at(org_id, user_id, now, "a")
+    id2 = await _setup_extraction_at(org_id, user_id, now, "b")
+
+    resp = await client.post(
+        "/api/v1/templates/extractions/bulk-delete",
+        json={"extraction_ids": [str(id1), str(id2)]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["deleted"] == 2
+
+    remaining = await client.get("/api/v1/templates/extractions")
+    assert remaining.json() == []
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_extractions_empty_list_returns_422(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    client, _ = auth_client
+    await client.get("/api/v1/users/me")
+    resp = await client.post(
+        "/api/v1/templates/extractions/bulk-delete",
+        json={"extraction_ids": []},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_extractions_cross_org_returns_404(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+    second_auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    client_a, _ = auth_client
+    client_b, _ = second_auth_client
+
+    me_a = await client_a.get("/api/v1/users/me")
+    org_a_id = uuid.UUID(me_a.json()["org_id"])
+    user_a_id = uuid.UUID(me_a.json()["id"])
+    ext_id = await _setup_extraction_at(org_a_id, user_a_id, datetime.now(UTC), "cross")
+
+    resp = await client_b.post(
+        "/api/v1/templates/extractions/bulk-delete",
+        json={"extraction_ids": [str(ext_id)]},
+    )
+    assert resp.status_code == 404
+
+    still_there = await client_a.get("/api/v1/templates/extractions")
+    assert len(still_there.json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_export_excel_filters_to_selected_extraction_ids(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    client, _ = auth_client
+    me = await client.get("/api/v1/users/me")
+    org_id = uuid.UUID(me.json()["org_id"])
+    user_id = uuid.UUID(me.json()["id"])
+    now = datetime.now(UTC)
+
+    keep_id = await _setup_extraction_at(org_id, user_id, now, "keep")
+    await _setup_extraction_at(org_id, user_id, now, "skip")
+
+    resp = await client.get(
+        "/api/v1/templates/extractions/export/excel",
+        params={"extraction_ids": [str(keep_id)]},
+    )
+    assert resp.status_code == 200, resp.text
+
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    ws = wb.active
+    data_rows = [row for row in ws.iter_rows(min_row=2, values_only=True) if any(row)]
+    assert len(data_rows) == 1
+    assert data_rows[0][0] == "invoice-keep.pdf"
+
+
+@pytest.mark.asyncio
+async def test_list_extractions_date_filter_excludes_out_of_range(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    client, _ = auth_client
+    me = await client.get("/api/v1/users/me")
+    org_id = uuid.UUID(me.json()["org_id"])
+    user_id = uuid.UUID(me.json()["id"])
+
+    await _setup_extraction_at(
+        org_id, user_id, datetime(2026, 3, 1, tzinfo=UTC), "before"
+    )
+
+    resp = await client.get(
+        "/api/v1/templates/extractions",
+        params={
+            "date_from": "2026-03-02",
+            "date_to": (datetime(2026, 3, 2) + timedelta(days=5)).date().isoformat(),
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
