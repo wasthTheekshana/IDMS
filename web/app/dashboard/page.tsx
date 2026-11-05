@@ -74,6 +74,8 @@ const NAV_ITEMS: { key: View; label: string; icon: string }[] = [
   },
 ];
 
+const SEARCH_ICON = NAV_ITEMS.find((n) => n.key === "search")!.icon;
+
 export default function DashboardPage() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [view, setView] = useState<View>("documents");
@@ -135,80 +137,64 @@ export default function DashboardPage() {
       </div>
     );
 
+  const goTo = (key: View) => {
+    setView(key);
+    setSelectedDoc(null);
+  };
+
   return (
     <div className="layout">
-      {/* Sidebar */}
-      <aside className="sidebar">
-        <div
-          style={{
-            padding: "1.25rem 1rem 1rem",
-            borderBottom: "1px solid var(--gray-100)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <div
-              style={{
-                width: 30,
-                height: 30,
-                background: "var(--brand-500)",
-                borderRadius: "var(--radius-sm)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <span
-                style={{ color: "#fff", fontWeight: 700, fontSize: "0.85rem" }}
-              >
-                D
-              </span>
-            </div>
-            <span
-              style={{
-                fontWeight: 700,
-                fontSize: "1rem",
-                color: "var(--gray-900)",
-              }}
-            >
-              IDMS
-            </span>
-          </div>
+      {/* Top bar */}
+      <header className="topbar">
+        <div className="topbar-brand">
+          <div className="topbar-logo">D</div>
+          <span>IDMS</span>
         </div>
 
-        <nav
-          style={{
-            flex: 1,
-            padding: "0.5rem 0.5rem",
-            display: "flex",
-            flexDirection: "column",
-            gap: "2px",
-          }}
+        <button
+          className="topbar-search"
+          onClick={() => goTo("search")}
+          aria-label="Search documents"
         >
+          <svg
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            viewBox="0 0 24 24"
+          >
+            <path d={SEARCH_ICON} />
+          </svg>
+          <span>Search documents</span>
+        </button>
+
+        <div className="topbar-right">
+          <span style={{ color: "var(--navy-300)" }}>
+            <UsageIndicator />
+          </span>
+          <div className="topbar-user">
+            <b>{user.email}</b>
+            {user.role}
+          </div>
+          <button onClick={handleLogout} className="topbar-signout">
+            Sign out
+          </button>
+        </div>
+      </header>
+
+      {/* Sidebar */}
+      <aside className="sidebar">
+        <nav aria-label="Main">
           {NAV_ITEMS.map((item) => (
             <button
               key={item.key}
-              onClick={() => {
-                setView(item.key);
-                setSelectedDoc(null);
-              }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.6rem",
-                padding: "0.55rem 0.75rem",
-                borderRadius: "var(--radius-md)",
-                border: "none",
-                background:
-                  view === item.key ? "var(--brand-50)" : "transparent",
-                color:
-                  view === item.key ? "var(--brand-700)" : "var(--gray-600)",
-                fontWeight: view === item.key ? 600 : 400,
-                fontSize: "0.875rem",
-                cursor: "pointer",
-                transition: "all 0.1s",
-                width: "100%",
-                textAlign: "left",
-              }}
+              onClick={() => goTo(item.key)}
+              className={`nav-item${view === item.key ? " active" : ""}`}
+              aria-current={view === item.key ? "page" : undefined}
+              title={item.label}
             >
               <svg
                 width="18"
@@ -219,92 +205,29 @@ export default function DashboardPage() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 viewBox="0 0 24 24"
+                style={{ flexShrink: 0 }}
               >
                 <path d={item.icon} />
               </svg>
-              {item.label}
+              <span>{item.label}</span>
             </button>
           ))}
         </nav>
-
-        <div
-          style={{ padding: "0.75rem", borderTop: "1px solid var(--gray-100)" }}
-        >
-          <div
-            style={{
-              padding: "0.5rem 0.6rem",
-              borderRadius: "var(--radius-md)",
-              background: "var(--gray-50)",
-            }}
-          >
-            <p
-              style={{
-                fontSize: "0.8rem",
-                fontWeight: 500,
-                color: "var(--gray-700)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {user.email}
-            </p>
-            <p style={{ fontSize: "0.7rem", color: "var(--gray-400)" }}>
-              {user.role}
-            </p>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="btn-ghost"
-            style={{
-              width: "100%",
-              marginTop: "0.4rem",
-              fontSize: "0.8rem",
-              color: "var(--gray-500)",
-              justifyContent: "center",
-              display: "flex",
-            }}
-          >
-            Sign out
-          </button>
-        </div>
       </aside>
 
       {/* Main content */}
       <main className="main-content">
-        {/* Top bar */}
-        <header
-          style={{
-            height: 56,
-            borderBottom: "1px solid var(--gray-200)",
-            background: "#fff",
-            display: "flex",
-            alignItems: "center",
-            padding: "0 1.5rem",
-            position: "sticky",
-            top: 0,
-            zIndex: 10,
-          }}
-        >
-          <h1
-            style={{
-              fontSize: "1rem",
-              fontWeight: 600,
-              color: "var(--gray-900)",
-            }}
-          >
+        <div className="pagebar">
+          <h1>
             {selectedDoc
               ? selectedDoc.filename
               : NAV_ITEMS.find((n) => n.key === view)?.label}
           </h1>
-          <span style={{ marginLeft: "auto" }}>
-            <UsageIndicator />
-          </span>
           {selectedDoc && (
             <button
               onClick={() => setSelectedDoc(null)}
               className="btn-ghost"
-              style={{ marginLeft: "1rem", fontSize: "0.8rem" }}
+              style={{ marginLeft: "auto", fontSize: "0.8rem" }}
             >
               <svg
                 width="14"
@@ -321,16 +244,16 @@ export default function DashboardPage() {
                   d="M10 19l-7-7m0 0l7-7m-7 7h18"
                 />
               </svg>
-              Back to list
+              Back to documents
             </button>
           )}
-        </header>
+        </div>
 
         {/* Document split viewer */}
         {selectedDoc ? (
           <DocumentViewer doc={selectedDoc} />
         ) : (
-          <div style={{ padding: "1.5rem", maxWidth: 960, margin: "0 auto" }}>
+          <div className="page-body">
             {view === "documents" && (
               <div className="fade-in">
                 <DocumentList

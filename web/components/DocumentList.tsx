@@ -205,6 +205,43 @@ export default function DocumentList({ onSelectDocument, refreshKey }: Props) {
 
   return (
     <div>
+      {/* Summary */}
+      <div className="stat-row">
+        <div className="stat">
+          <div className="stat-label">Documents</div>
+          <div className="stat-value">{docs.length}</div>
+        </div>
+        <div className="stat">
+          <div className="stat-label">Total pages</div>
+          <div className="stat-value">
+            {docs.reduce((n, d) => n + (d.page_count ?? 0), 0)}
+          </div>
+        </div>
+        <div className="stat">
+          <div className="stat-label">Processing</div>
+          <div className="stat-value">
+            {
+              docs.filter(
+                (d) => d.status === "processing" || d.status === "uploaded",
+              ).length
+            }
+          </div>
+        </div>
+        <div className="stat">
+          <div className="stat-label">Failed</div>
+          <div
+            className="stat-value"
+            style={{
+              color: docs.some((d) => d.status === "failed")
+                ? "var(--red-600)"
+                : undefined,
+            }}
+          >
+            {docs.filter((d) => d.status === "failed").length}
+          </div>
+        </div>
+      </div>
+
       {/* Header + bulk actions bar */}
       <div
         style={{
@@ -340,145 +377,86 @@ export default function DocumentList({ onSelectDocument, refreshKey }: Props) {
         </div>
       </div>
 
-      {/* Document cards */}
-      <div style={{ display: "grid", gap: "0.5rem" }}>
-        {docs.map((doc) => {
-          const isChecked = selected.has(doc.id);
-          return (
-            <div
-              key={doc.id}
-              className="card"
-              style={{
-                padding: "0.85rem 1rem",
-                cursor: "pointer",
-                transition: "all 0.12s",
-                display: "flex",
-                alignItems: "center",
-                gap: "0.75rem",
-                borderColor: isChecked ? "var(--brand-300)" : undefined,
-                background: isChecked ? "var(--brand-50)" : undefined,
-              }}
-              onMouseEnter={(e) => {
-                if (!isChecked) {
-                  e.currentTarget.style.borderColor = "var(--brand-200)";
-                  e.currentTarget.style.boxShadow = "var(--shadow-md)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isChecked) {
-                  e.currentTarget.style.borderColor = "var(--gray-200)";
-                  e.currentTarget.style.boxShadow = "var(--shadow-sm)";
-                }
-              }}
-            >
-              {/* Checkbox */}
-              <input
-                type="checkbox"
-                checked={isChecked}
-                onClick={(e) => toggleSelect(doc.id, e)}
-                onChange={() => {}}
-                style={{
-                  accentColor: "var(--brand-500)",
-                  cursor: "pointer",
-                  flexShrink: 0,
-                }}
-              />
-
-              {/* Card body — click opens viewer */}
-              <div
-                onClick={() => onSelectDocument?.(doc)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.75rem",
-                  flex: 1,
-                  minWidth: 0,
-                }}
-              >
-                <div
+      {/* Document table */}
+      <div className="card" style={{ overflow: "hidden" }}>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th style={{ width: 36 }}>
+                <input
+                  type="checkbox"
+                  aria-label="Select all documents"
+                  checked={selected.size === docs.length && docs.length > 0}
+                  onChange={toggleAll}
+                  style={{ accentColor: "var(--brand-500)" }}
+                />
+              </th>
+              <th>Name</th>
+              <th style={{ width: 80 }}>Type</th>
+              <th style={{ width: 90 }}>Size</th>
+              <th style={{ width: 70 }}>Pages</th>
+              <th style={{ width: 110 }}>Added</th>
+              <th style={{ width: 110 }}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {docs.map((doc) => {
+              const isChecked = selected.has(doc.id);
+              return (
+                <tr
+                  key={doc.id}
+                  onClick={() => onSelectDocument?.(doc)}
                   style={{
-                    width: 42,
-                    height: 42,
-                    borderRadius: "var(--radius-sm)",
-                    background: isChecked
-                      ? "var(--brand-100)"
-                      : "var(--brand-50)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
+                    cursor: "pointer",
+                    background: isChecked ? "var(--brand-50)" : undefined,
                   }}
                 >
-                  <span
-                    style={{
-                      fontSize: "0.65rem",
-                      fontWeight: 700,
-                      color: "var(--brand-600)",
-                      letterSpacing: "0.02em",
-                    }}
-                  >
-                    {TYPE_ICON[doc.mime_type] ?? "FILE"}
-                  </span>
-                </div>
-
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${doc.filename}`}
+                      checked={isChecked}
+                      onClick={(e) => toggleSelect(doc.id, e)}
+                      onChange={() => {}}
+                      style={{ accentColor: "var(--brand-500)" }}
+                    />
+                  </td>
+                  <td
                     style={{
                       fontWeight: 500,
-                      fontSize: "0.88rem",
-                      color: "var(--gray-800)",
-                      whiteSpace: "nowrap",
+                      color: "var(--gray-900)",
+                      maxWidth: 360,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
                     }}
                   >
                     {doc.filename}
-                  </p>
-                  <p
-                    style={{
-                      fontSize: "0.75rem",
-                      color: "var(--gray-400)",
-                      marginTop: "0.1rem",
-                    }}
-                  >
+                  </td>
+                  <td style={{ color: "var(--gray-600)" }}>
+                    {TYPE_ICON[doc.mime_type] ?? "FILE"}
+                  </td>
+                  <td style={{ color: "var(--gray-600)" }}>
                     {formatBytes(doc.size_bytes)}
-                    {doc.page_count ? ` · ${doc.page_count} pages` : ""} ·{" "}
+                  </td>
+                  <td style={{ color: "var(--gray-600)" }}>
+                    {doc.page_count ?? "–"}
+                  </td>
+                  <td style={{ color: "var(--gray-600)" }}>
                     {new Date(doc.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.6rem",
-                    flexShrink: 0,
-                  }}
-                >
-                  <span
-                    className={`badge ${BADGE_CLASS[doc.status] ?? "badge-uploaded"}`}
-                  >
-                    {doc.status}
-                  </span>
-                  <svg
-                    width="16"
-                    height="16"
-                    fill="none"
-                    stroke="var(--gray-300)"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M9 5l7 7-7 7"
-                    />
-                  </svg>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+                  </td>
+                  <td>
+                    <span
+                      className={`badge ${BADGE_CLASS[doc.status] ?? "badge-uploaded"}`}
+                    >
+                      {doc.status}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

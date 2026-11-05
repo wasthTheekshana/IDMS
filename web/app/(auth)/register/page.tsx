@@ -33,7 +33,7 @@ export default function RegisterPage() {
         alignItems: "center",
         justifyContent: "center",
         background:
-          "linear-gradient(135deg, #eff6ff 0%, #f8fafc 50%, #f0fdf4 100%)",
+          "linear-gradient(180deg, var(--navy-800) 0, var(--navy-800) 220px, var(--gray-50) 220px)",
         padding: "1rem",
       }}
     >
@@ -61,14 +61,14 @@ export default function RegisterPage() {
             style={{
               fontSize: "1.5rem",
               fontWeight: 700,
-              color: "var(--gray-900)",
+              color: "#fff",
             }}
           >
             Create your account
           </h1>
           <p
             style={{
-              color: "var(--gray-500)",
+              color: "var(--navy-300)",
               fontSize: "0.925rem",
               marginTop: "0.25rem",
             }}

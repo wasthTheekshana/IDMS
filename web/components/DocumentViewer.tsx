@@ -50,7 +50,7 @@ export default function DocumentViewer({ doc }: { doc: Document }) {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          height: "calc(100vh - 56px)",
+          height: "calc(100vh - var(--topbar-h) - var(--pagebar-h))",
         }}
       >
         <div style={{ textAlign: "center" }}>
