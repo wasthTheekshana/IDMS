@@ -425,3 +425,40 @@ async def test_list_extractions_date_filter_excludes_out_of_range(
     )
     assert resp.status_code == 200, resp.text
     assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_date_filter_uses_callers_local_day(
+    auth_client: tuple[AsyncClient, dict],  # type: ignore[type-arg]
+) -> None:
+    """02:00 on 5 Nov in UTC+5:30 is 20:30 UTC on 4 Nov; filtering for 5 Nov
+    with tz_offset=-330 must include it, and 4 Nov must not."""
+    client, _ = auth_client
+    me = await client.get("/api/v1/users/me")
+    org_id = uuid.UUID(me.json()["org_id"])
+    user_id = uuid.UUID(me.json()["id"])
+
+    ext_id = await _setup_extraction_at(
+        org_id, user_id, datetime(2026, 11, 4, 20, 30, tzinfo=UTC), "early-morning"
+    )
+
+    local_day = await client.get(
+        "/api/v1/templates/extractions",
+        params={"date_from": "2026-11-05", "date_to": "2026-11-05", "tz_offset": -330},
+    )
+    assert local_day.status_code == 200, local_day.text
+    assert {r["id"] for r in local_day.json()} == {str(ext_id)}
+    assert "template_id" in local_day.json()[0]
+
+    prev_day = await client.get(
+        "/api/v1/templates/extractions",
+        params={"date_from": "2026-11-04", "date_to": "2026-11-04", "tz_offset": -330},
+    )
+    assert prev_day.json() == []
+
+    csv_resp = await client.get(
+        "/api/v1/templates/extractions/export/csv",
+        params={"extraction_ids": [str(ext_id)]},
+    )
+    assert csv_resp.status_code == 200
+    assert "early-morning" in csv_resp.text

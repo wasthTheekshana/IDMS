@@ -24,6 +24,7 @@ interface DocOption {
 interface ExtractionRow {
   id: string;
   document_id: string;
+  template_id: string;
   filename: string;
   template_name: string;
   data: Record<string, unknown>;
@@ -50,8 +51,18 @@ export default function ExtractionsPanel() {
     new Set(),
   );
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  // "documentId:templateId" for every extraction ever run, ignoring the date
+  // filter, so an already-extracted document stays out of the picker.
+  const [extractedKeys, setExtractedKeys] = useState<Set<string>>(new Set());
+  const [notice, setNotice] = useState<{
+    kind: "ok" | "error";
+    text: string;
+  } | null>(null);
 
   const token = getAccessToken();
+  // Date filters are calendar days in the user's local time; the API needs
+  // the offset to turn them into the right UTC range.
+  const tzOffset = new Date().getTimezoneOffset();
 
   const fetchAll = useCallback(async () => {
     if (!token) return;
@@ -59,16 +70,36 @@ export default function ExtractionsPanel() {
     const extractionsUrl = new URL(`${API}/api/v1/templates/extractions`);
     if (dateFrom) extractionsUrl.searchParams.set("date_from", dateFrom);
     if (dateTo) extractionsUrl.searchParams.set("date_to", dateTo);
+    if (dateFrom || dateTo)
+      extractionsUrl.searchParams.set("tz_offset", String(tzOffset));
+    const filtered = Boolean(dateFrom || dateTo);
 
-    const [tRes, eRes, dRes] = await Promise.all([
+    const [tRes, eRes, dRes, allRes] = await Promise.all([
       fetch(`${API}/api/v1/templates`, { headers }),
       fetch(extractionsUrl.toString(), { headers }),
       fetch(`${API}/api/v1/documents`, { headers }),
+      filtered
+        ? fetch(`${API}/api/v1/templates/extractions`, { headers })
+        : Promise.resolve(null),
     ]);
     if (tRes.ok) setTemplates(await tRes.json());
+    if (!eRes.ok) {
+      setNotice({
+        kind: "error",
+        text: "Could not load extractions. Check the dates and try again.",
+      });
+    }
     if (eRes.ok) {
       const rows: ExtractionRow[] = await eRes.json();
       setExtractions(rows);
+      const keySource: ExtractionRow[] = filtered
+        ? allRes && allRes.ok
+          ? await allRes.json()
+          : []
+        : rows;
+      setExtractedKeys(
+        new Set(keySource.map((r) => `${r.document_id}:${r.template_id}`)),
+      );
       const validIds = new Set(rows.map((r) => r.id));
       setSelectedExtractions((prev) => {
         const next = new Set<string>();
@@ -86,7 +117,7 @@ export default function ExtractionsPanel() {
         ),
       );
     }
-  }, [token, dateFrom, dateTo]);
+  }, [token, dateFrom, dateTo, tzOffset]);
 
   useEffect(() => {
     fetchAll();
@@ -149,7 +180,9 @@ export default function ExtractionsPanel() {
 
   function toggleSelectAllDocs() {
     setSelectedDocs((prev) =>
-      prev.size === docs.length ? new Set() : new Set(docs.map((d) => d.id)),
+      prev.size === visibleDocs.length
+        ? new Set()
+        : new Set(visibleDocs.map((d) => d.id)),
     );
   }
 
@@ -158,13 +191,16 @@ export default function ExtractionsPanel() {
     setExtracting(true);
     const docIds = Array.from(selectedDocs);
     setExtractProgress({ done: 0, total: docIds.length });
+    setNotice(null);
+    const createdIds: string[] = [];
+    let failed = 0;
     try {
       // Sequential, not Promise.all: each call is a real LLM request, and
       // running many at once risks the provider's rate limits far more
       // than a slower, one-at-a-time run does.
       for (let i = 0; i < docIds.length; i++) {
         try {
-          await fetch(`${API}/api/v1/templates/extract`, {
+          const res = await fetch(`${API}/api/v1/templates/extract`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -175,13 +211,36 @@ export default function ExtractionsPanel() {
               template_id: selectedTemplate,
             }),
           });
+          if (res.ok) {
+            const created: { id: string } = await res.json();
+            createdIds.push(created.id);
+          } else {
+            failed += 1;
+          }
         } catch {
           /* one document failing shouldn't stop the rest */
+          failed += 1;
         }
         setExtractProgress({ done: i + 1, total: docIds.length });
       }
+      // Show the new rows even if a date filter would hide them, then select
+      // only those rows so CSV/Excel export contains just this run.
+      setDateFrom("");
+      setDateTo("");
       await fetchAll();
       setSelectedDocs(new Set());
+      setSelectedExtractions(new Set(createdIds));
+      setNotice(
+        failed > 0
+          ? {
+              kind: "error",
+              text: `${createdIds.length} extracted, ${failed} failed. The extracted ones are selected for export.`,
+            }
+          : {
+              kind: "ok",
+              text: `${createdIds.length} document${createdIds.length !== 1 ? "s" : ""} extracted and selected. Download CSV exports only these.`,
+            },
+      );
     } finally {
       setExtracting(false);
       setExtractProgress(null);
@@ -230,6 +289,8 @@ export default function ExtractionsPanel() {
       } else {
         if (dateFrom) url.searchParams.set("date_from", dateFrom);
         if (dateTo) url.searchParams.set("date_to", dateTo);
+        if (dateFrom || dateTo)
+          url.searchParams.set("tz_offset", String(tzOffset));
       }
       const res = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${token}` },
@@ -248,6 +309,11 @@ export default function ExtractionsPanel() {
       setExportLoading(null);
     }
   }
+
+  const visibleDocs = docs.filter(
+    (d) =>
+      !(selectedTemplate && extractedKeys.has(`${d.id}:${selectedTemplate}`)),
+  );
 
   const allFieldKeys = Array.from(
     new Set(
@@ -481,7 +547,7 @@ export default function ExtractionsPanel() {
               <label style={{ fontSize: "0.75rem", color: "var(--gray-500)" }}>
                 Documents
               </label>
-              {docs.length > 0 && (
+              {visibleDocs.length > 0 && (
                 <label
                   style={{
                     display: "flex",
@@ -495,11 +561,12 @@ export default function ExtractionsPanel() {
                   <input
                     type="checkbox"
                     checked={
-                      selectedDocs.size === docs.length && docs.length > 0
+                      selectedDocs.size === visibleDocs.length &&
+                      visibleDocs.length > 0
                     }
                     onChange={toggleSelectAllDocs}
                   />
-                  Select all ({docs.length})
+                  Select all ({visibleDocs.length})
                 </label>
               )}
             </div>
@@ -512,7 +579,7 @@ export default function ExtractionsPanel() {
                 background: "#fff",
               }}
             >
-              {docs.length === 0 ? (
+              {visibleDocs.length === 0 ? (
                 <div
                   style={{
                     padding: "0.6rem",
@@ -520,10 +587,12 @@ export default function ExtractionsPanel() {
                     color: "var(--gray-400)",
                   }}
                 >
-                  No processed documents available.
+                  {docs.length === 0
+                    ? "No processed documents available."
+                    : "All documents have already been extracted with this template."}
                 </div>
               ) : (
-                docs.map((d) => (
+                visibleDocs.map((d) => (
                   <label
                     key={d.id}
                     style={{
@@ -601,6 +670,23 @@ export default function ExtractionsPanel() {
         </div>
       </div>
 
+      {notice && (
+        <div
+          role="status"
+          style={{
+            padding: "0.6rem 0.85rem",
+            marginBottom: "1rem",
+            borderRadius: "var(--radius-md)",
+            fontSize: "0.85rem",
+            background:
+              notice.kind === "ok" ? "var(--green-50)" : "var(--red-50)",
+            color: notice.kind === "ok" ? "var(--green-700)" : "var(--red-700)",
+          }}
+        >
+          {notice.text}
+        </div>
+      )}
+
       {/* Date filter */}
       {templates.length > 0 && (
         <div
@@ -650,6 +736,11 @@ export default function ExtractionsPanel() {
               style={{ fontSize: "0.82rem" }}
             />
           </div>
+          {dateFrom && dateTo && dateFrom > dateTo && (
+            <span style={{ fontSize: "0.78rem", color: "var(--red-600)" }}>
+              The start date is after the end date, so nothing can match.
+            </span>
+          )}
           {(dateFrom || dateTo) && (
             <button
               onClick={() => {

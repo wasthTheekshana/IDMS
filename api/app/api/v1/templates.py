@@ -2,7 +2,7 @@ import csv
 import io
 import uuid
 from collections.abc import Sequence
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -40,7 +40,14 @@ def _extraction_filters(
     extraction_ids: Sequence[uuid.UUID] | None,
     date_from: date | None,
     date_to: date | None,
+    tz_offset_minutes: int = 0,
 ) -> list[ColumnElement[bool]]:
+    # date_from/date_to are calendar days in the caller's local time zone.
+    # tz_offset_minutes is JavaScript's Date.getTimezoneOffset() (UTC minus
+    # local, so UTC+5:30 sends -330); local midnight in UTC is midnight plus
+    # that offset. Boundaries are explicit UTC so the DB driver never has to
+    # guess what a naive datetime means.
+    shift = timedelta(minutes=tz_offset_minutes)
     conditions: list[ColumnElement[bool]] = [Extraction.org_id == org_id]
     if template_id:
         conditions.append(Extraction.template_id == template_id)
@@ -48,12 +55,15 @@ def _extraction_filters(
         conditions.append(Extraction.id.in_(extraction_ids))
     if date_from:
         conditions.append(
-            Extraction.created_at >= datetime.combine(date_from, time.min)
+            Extraction.created_at
+            >= datetime.combine(date_from, time.min, tzinfo=UTC) + shift
         )
     if date_to:
         conditions.append(
             Extraction.created_at
-            < datetime.combine(date_to, time.min) + timedelta(days=1)
+            < datetime.combine(date_to, time.min, tzinfo=UTC)
+            + timedelta(days=1)
+            + shift
         )
     return conditions
 
@@ -157,6 +167,7 @@ async def list_extractions(
     template_id: uuid.UUID | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    tz_offset: int = Query(0, ge=-840, le=840),
 ) -> list[ExtractionRow]:
     q = (
         select(Extraction, Document.filename, ExtractionTemplate.name)
@@ -164,7 +175,12 @@ async def list_extractions(
         .join(ExtractionTemplate, ExtractionTemplate.id == Extraction.template_id)
         .where(
             *_extraction_filters(
-                current_user.org_id, template_id, None, date_from, date_to
+                current_user.org_id,
+                template_id,
+                None,
+                date_from,
+                date_to,
+                tz_offset,
             )
         )
         .order_by(Extraction.created_at.desc())
@@ -177,6 +193,7 @@ async def list_extractions(
             ExtractionRow(
                 id=ext.id,
                 document_id=ext.document_id,
+                template_id=ext.template_id,
                 filename=filename,
                 template_name=tmpl_name,
                 data=ext.data,
@@ -235,6 +252,7 @@ async def export_csv(
     date_from: date | None = None,
     date_to: date | None = None,
     extraction_ids: list[uuid.UUID] | None = Query(None),
+    tz_offset: int = Query(0, ge=-840, le=840),
 ) -> StreamingResponse:
     q = (
         select(Extraction, Document.filename, ExtractionTemplate)
@@ -242,7 +260,12 @@ async def export_csv(
         .join(ExtractionTemplate, ExtractionTemplate.id == Extraction.template_id)
         .where(
             *_extraction_filters(
-                current_user.org_id, template_id, extraction_ids, date_from, date_to
+                current_user.org_id,
+                template_id,
+                extraction_ids,
+                date_from,
+                date_to,
+                tz_offset,
             )
         )
         .order_by(Extraction.created_at.desc())
@@ -298,6 +321,7 @@ async def export_excel(
     date_from: date | None = None,
     date_to: date | None = None,
     extraction_ids: list[uuid.UUID] | None = Query(None),
+    tz_offset: int = Query(0, ge=-840, le=840),
 ) -> StreamingResponse:
     from openpyxl import Workbook
     from openpyxl.styles import Font
@@ -308,7 +332,12 @@ async def export_excel(
         .join(ExtractionTemplate, ExtractionTemplate.id == Extraction.template_id)
         .where(
             *_extraction_filters(
-                current_user.org_id, template_id, extraction_ids, date_from, date_to
+                current_user.org_id,
+                template_id,
+                extraction_ids,
+                date_from,
+                date_to,
+                tz_offset,
             )
         )
         .order_by(Extraction.created_at.desc())
